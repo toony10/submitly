@@ -21,7 +21,8 @@ export type UseCrudActionOptions<TInput, TResult> = MutationOptions<InferResultD
 
 export type UseCrudActionReturn<TInput, TData> = {
   /**
-   * Runs the action. Never rejects: thrown errors go through `mapError`.
+   * Runs the action. Never rejects: thrown errors go through `mapError`
+   * (interrupts resolve with a bare `{ success: false }` and no side effects).
    * While a call is in flight, further calls return the same promise.
    * Stable identity across renders.
    */
@@ -64,10 +65,19 @@ export function useCrudAction<TInput = void, TResult = unknown>(
         }
 
         try {
-          const result = await callAction<TInput, TData>(options.action, input, config, options);
+          const { interrupted, result } = await callAction<TInput, TData>(
+            options.action,
+            input,
+            config,
+            options,
+          );
 
           // Release before callbacks so an `onSuccess` that closes the dialog isn't blocked.
           setDialogLock(false);
+
+          if (interrupted) {
+            return result;
+          }
 
           notifyResult(result, config, options.notify);
 

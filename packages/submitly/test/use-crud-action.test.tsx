@@ -153,4 +153,39 @@ describe("useCrudAction", () => {
 
     expect(navigate).not.toHaveBeenCalled();
   });
+
+  it("stops silently on an interrupt (e.g. a framework redirect)", async () => {
+    const notify = { success: vi.fn(), error: vi.fn() };
+    const onError = vi.fn();
+    const redirect = Object.assign(new Error("NEXT_REDIRECT"), { digest: "NEXT_REDIRECT;push;/login" });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <CrudProvider
+        notify={notify}
+        isInterrupt={(error) => (error as { digest?: string }).digest?.startsWith("NEXT_REDIRECT") ?? false}
+      >
+        {children}
+      </CrudProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useCrudAction({
+          action: async () => {
+            throw redirect;
+          },
+          onError,
+        }),
+      { wrapper },
+    );
+
+    let outcome: ActionResult | undefined;
+    await act(async () => {
+      outcome = await result.current.execute();
+    });
+
+    expect(outcome).toEqual({ success: false });
+    expect(result.current.serverErrors).toEqual([]);
+    expect(result.current.isPending).toBe(false);
+    expect(notify.error).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
 });

@@ -14,6 +14,12 @@ export type CrudConfig = {
   navigate: (to: string) => void;
   normalize: Normalize;
   mapError: MapError;
+  /**
+   * Thrown values the framework is already handling (e.g. a Next.js
+   * `redirect()` inside a server action). The hooks then stop silently: no
+   * notify, no errors, no callbacks.
+   */
+  isInterrupt: (error: unknown) => boolean;
   labels: CrudLabels;
 };
 
@@ -24,6 +30,7 @@ export type CrudProviderProps = {
   navigate?: (to: string) => void;
   normalize?: Normalize;
   mapError?: MapError;
+  isInterrupt?: (error: unknown) => boolean;
   labels?: Partial<CrudLabels>;
 };
 
@@ -39,6 +46,7 @@ export const defaultCrudConfig: CrudConfig = {
   },
   normalize: defaultNormalize,
   mapError: defaultMapError,
+  isInterrupt: () => false,
   labels: { confirm: "Confirm", cancel: "Cancel" },
 };
 
@@ -56,6 +64,7 @@ export function CrudProvider({
   navigate,
   normalize,
   mapError,
+  isInterrupt,
   labels,
 }: CrudProviderProps) {
   const parent = useContext(CrudConfigContext);
@@ -70,9 +79,20 @@ export function CrudProvider({
       navigate: navigate ?? parent.navigate,
       normalize: normalize ?? parent.normalize,
       mapError: mapError ?? parent.mapError,
+      isInterrupt: isInterrupt ?? parent.isInterrupt,
       labels: { ...parent.labels, ...stripUndefined(labels) },
     }),
-    [parent, notify?.success, notify?.error, onMutated, navigate, normalize, mapError, labels],
+    [
+      parent,
+      notify?.success,
+      notify?.error,
+      onMutated,
+      navigate,
+      normalize,
+      mapError,
+      isInterrupt,
+      labels,
+    ],
   );
 
   return <CrudConfigContext.Provider value={value}>{children}</CrudConfigContext.Provider>;

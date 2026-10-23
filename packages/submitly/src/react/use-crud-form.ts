@@ -92,10 +92,19 @@ export function useCrudForm<TFieldValues extends FieldValues, TOutput = TFieldVa
 
           setServerErrors([]);
 
-          const result = await callAction<TOutput, TData>(options.action, values, config, options);
+          const { interrupted, result } = await callAction<TOutput, TData>(
+            options.action,
+            values,
+            config,
+            options,
+          );
 
           // Release before callbacks so an `onSuccess` that closes the dialog isn't blocked.
           setDialogLock(false);
+
+          if (interrupted) {
+            return;
+          }
 
           notifyResult(result, config, options.notify);
 

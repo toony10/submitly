@@ -22,20 +22,31 @@ export type MutationOptions<TData> = {
   lockDialog?: boolean;
 };
 
-/** Calls the action and always resolves to an `ActionResult`, never rejects. */
+export type CallOutcome<TData> =
+  | { interrupted: false; result: ActionResult<TData> }
+  | { interrupted: true; result: ActionResult<TData> };
+
+/**
+ * Calls the action and always resolves, never rejects. `interrupted` means
+ * the action threw a framework control-flow error (see `isInterrupt`).
+ */
 export async function callAction<TInput, TData>(
   action: (input: TInput) => Promise<unknown>,
   input: TInput,
   config: CrudConfig,
   options: MutationOptions<TData>,
-): Promise<ActionResult<TData>> {
+): Promise<CallOutcome<TData>> {
   const normalize = options.normalize ?? config.normalize;
   const mapError = options.mapError ?? config.mapError;
 
   try {
-    return normalize(await action(input)) as ActionResult<TData>;
+    return { interrupted: false, result: normalize(await action(input)) as ActionResult<TData> };
   } catch (error) {
-    return mapError(error) as ActionResult<TData>;
+    if (config.isInterrupt(error)) {
+      return { interrupted: true, result: { success: false } };
+    }
+
+    return { interrupted: false, result: mapError(error) as ActionResult<TData> };
   }
 }
 

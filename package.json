@@ -12,7 +12,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "check-exports": "turbo run check-exports",
-    "changeset": "changeset"
+    "changeset": "changeset",
+    "size": "turbo run size"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3",

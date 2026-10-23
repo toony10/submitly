@@ -2,12 +2,23 @@
   "name": "submitly",
   "version": "0.0.0",
   "description": "shadcn-native CRUD dialogs and form submission for React and Next.js: validation, pending locks, server errors and post-mutation refresh.",
-  "keywords": ["react", "nextjs", "react-hook-form", "shadcn", "crud", "forms", "standard-schema", "server-actions"],
+  "keywords": [
+    "react",
+    "nextjs",
+    "react-hook-form",
+    "shadcn",
+    "crud",
+    "forms",
+    "standard-schema",
+    "server-actions"
+  ],
   "license": "MIT",
   "author": "toony10",
   "type": "module",
   "sideEffects": false,
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -28,7 +39,8 @@
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --typecheck",
-    "check-exports": "publint --strict && attw --pack . --profile esm-only"
+    "check-exports": "publint --strict && attw --pack . --profile esm-only",
+    "size": "size-limit"
   },
   "peerDependencies": {
     "@hookform/resolvers": "^5.0.0 || ^6.0.0",
@@ -47,18 +59,33 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
     "@hookform/resolvers": "6.0.0",
+    "@size-limit/preset-small-lib": "14.3.0",
     "@testing-library/dom": "10.4.2",
     "@testing-library/react": "16.3.3",
     "@types/node": "26.6.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "arktype": "2.2.9",
     "happy-dom": "21.0.4",
     "publint": "0.3.25",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-hook-form": "7.91.0",
+    "size-limit": "14.3.0",
     "tsdown": "0.23.2",
+    "valibot": "1.5.0",
     "vite": "8.3.5",
-    "vitest": "5.0.5"
-  }
+    "vitest": "5.0.5",
+    "zod": "4.6.7",
+    "zod3": "npm:zod@3.25.76"
+  },
+  "size-limit": [
+    {
+      "name": "submitly (core + react)",
+      "path": "dist/index.js",
+      "import": "*",
+      "limit": "4 kB",
+      "gzip": true
+    }
+  ]
 }

@@ -94,6 +94,22 @@ describe("NextCrudProvider", () => {
   });
 });
 
+describe("NextCrudProvider onError", () => {
+  it("passes the provider-level onError through", async () => {
+    const onError = vi.fn();
+    const { result } = renderHook(
+      () => useCrudAction({ action: async () => ({ success: false, statusCode: 401 }) }),
+      { wrapper: wrapperWith({ onError }) },
+    );
+
+    await act(async () => {
+      await result.current.execute();
+    });
+
+    expect(onError).toHaveBeenCalledWith({ success: false, statusCode: 401 });
+  });
+});
+
 describe("isNextInterrupt", () => {
   it("detects Next control-flow errors only", async () => {
     const { notFound, redirect } = await import("next/navigation");

@@ -21,10 +21,13 @@ export type UseCrudActionOptions<TInput, TResult> = MutationOptions<InferResultD
 
 export type UseCrudActionReturn<TInput, TData> = {
   /**
-   * Runs the action. Never rejects: thrown errors go through `mapError`
-   * (interrupts resolve with a bare `{ success: false }` and no side effects).
-   * While a call is in flight, further calls return the same promise.
-   * Stable identity across renders.
+   * Runs the action. The action's own errors and failures never reject: a
+   * thrown error goes through `mapError` (interrupts resolve with a bare
+   * `{ success: false }` and no side effects). Errors thrown by your own
+   * callbacks (`onSuccess`, `onError`, `notify` handlers, `onMutated`,
+   * `navigate`, the provider's `onError`) are not caught and reject the
+   * returned promise. While a call is in flight, further calls return the
+   * same promise. Stable identity across renders.
    */
   execute: (input: TInput) => Promise<ActionResult<TData>>;
   isPending: boolean;
@@ -87,6 +90,7 @@ export function useCrudAction<TInput = void, TResult = unknown>(
             redirectAfterSuccess(result, config, options.redirectTo);
           } else {
             setServerErrors(result.errors ?? []);
+            config.onError(result);
             options.onError?.(result);
           }
 

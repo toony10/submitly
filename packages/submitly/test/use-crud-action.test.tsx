@@ -188,4 +188,204 @@ describe("useCrudAction", () => {
     expect(notify.error).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
   });
+  describe("provider onError", () => {
+    it("runs after notify.error and before the per-call onError, for returned and thrown failures", async () => {
+      const calls: string[] = [];
+      const notify = { success: vi.fn(), error: vi.fn(() => calls.push("notify")) };
+      const providerOnError = vi.fn(() => calls.push("provider"));
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <CrudProvider notify={notify} onError={providerOnError}>
+          {children}
+        </CrudProvider>
+      );
+      const { result } = renderHook(
+        () =>
+          useCrudAction({
+            action: async (fail: "returned" | "thrown") => {
+              if (fail === "thrown") {
+                throw new Error("Offline");
+              }
+
+              return { success: false, statusCode: 401, message: "Expired" };
+            },
+            onError: () => calls.push("call"),
+          }),
+        { wrapper },
+      );
+
+      await act(async () => {
+        await result.current.execute("returned");
+      });
+
+      expect(calls).toEqual(["notify", "provider", "call"]);
+      expect(providerOnError).toHaveBeenLastCalledWith({
+        success: false,
+        statusCode: 401,
+        message: "Expired",
+      });
+
+      await act(async () => {
+        await result.current.execute("thrown");
+      });
+
+      expect(providerOnError).toHaveBeenLastCalledWith({
+        success: false,
+        message: "Offline",
+        errors: ["Offline"],
+      });
+      expect(providerOnError).toHaveBeenCalledTimes(2);
+    });
+
+    it("is not called on success", async () => {
+      const onError = vi.fn();
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <CrudProvider onError={onError}>{children}</CrudProvider>
+      );
+      const { result } = renderHook(() => useCrudAction({ action: async () => ({ success: true }) }), {
+        wrapper,
+      });
+
+      await act(async () => {
+        await result.current.execute();
+      });
+
+      expect(onError).not.toHaveBeenCalled();
+    });
+
+    it("is overridden by a nested provider and inherited otherwise", async () => {
+      const outer = vi.fn();
+      const inner = vi.fn();
+      const fail = async () => ({ success: false });
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <CrudProvider onError={outer}>
+          <CrudProvider onError={inner}>{children}</CrudProvider>
+        </CrudProvider>
+      );
+      const inheriting = ({ children }: { children: ReactNode }) => (
+        <CrudProvider onError={outer}>
+          <CrudProvider>{children}</CrudProvider>
+        </CrudProvider>
+      );
+
+      const nested = renderHook(() => useCrudAction({ action: fail }), { wrapper });
+      await act(async () => {
+        await nested.result.current.execute();
+      });
+
+      expect(inner).toHaveBeenCalledOnce();
+      expect(outer).not.toHaveBeenCalled();
+
+      const inherited = renderHook(() => useCrudAction({ action: fail }), { wrapper: inheriting });
+      await act(async () => {
+        await inherited.result.current.execute();
+      });
+
+      expect(outer).toHaveBeenCalledOnce();
+    });
+
+    it("is skipped for interrupts", async () => {
+      const onError = vi.fn();
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <CrudProvider onError={onError} isInterrupt={() => true}>
+          {children}
+        </CrudProvider>
+      );
+      const { result } = renderHook(
+        () =>
+          useCrudAction({
+            action: async () => {
+              throw new Error("NEXT_REDIRECT");
+            },
+          }),
+        { wrapper },
+      );
+
+      await act(async () => {
+        await result.current.execute();
+      });
+
+      expect(onError).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("errors thrown by your own callbacks", () => {
+    it("propagate: execute rejects and the hook settles", async () => {
+      const boom = new Error("onSuccess blew up");
+      const { wrapper } = providerWrapper();
+      const { result } = renderHook(
+        () =>
+          useCrudAction({
+            action: async () => ({ success: true }),
+            onSuccess: () => {
+              throw boom;
+            },
+          }),
+        { wrapper },
+      );
+
+      await act(async () => {
+        await expect(result.current.execute()).rejects.toBe(boom);
+      });
+
+      expect(result.current.isPending).toBe(false);
+    });
+
+    const throws = () => {
+      throw new Error("cb");
+    };
+
+    it.each([
+      ["a notify handler", { provider: { notify: { error: throws } }, call: {} }],
+      ["the provider onError", { provider: { onError: throws }, call: {} }],
+      ["the per-call onError", { provider: {}, call: { onError: throws } }],
+    ])("propagate from %s", async (_name, { provider, call }) => {
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <CrudProvider {...provider}>{children}</CrudProvider>
+      );
+      const { result } = renderHook(
+        () => useCrudAction({ action: async () => ({ success: false, message: "No" }), ...call }),
+        { wrapper },
+      );
+
+      await act(async () => {
+        await expect(result.current.execute()).rejects.toThrow("cb");
+      });
+
+      expect(result.current.isPending).toBe(false);
+    });
+
+    it.each([
+      ["onMutated", { onMutated: throws }, {}],
+      ["navigate", { navigate: throws }, { redirectTo: "/next" }],
+    ])("propagate from %s", async (_name, provider, call) => {
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <CrudProvider {...provider}>{children}</CrudProvider>
+      );
+      const { result } = renderHook(
+        () => useCrudAction({ action: async () => ({ success: true }), ...call }),
+        { wrapper },
+      );
+
+      await act(async () => {
+        await expect(result.current.execute()).rejects.toThrow("cb");
+      });
+    });
+
+    it("still maps errors thrown by the action itself", async () => {
+      const { wrapper } = providerWrapper();
+      const { result } = renderHook(
+        () =>
+          useCrudAction({
+            action: async () => {
+              throw new Error("from the action");
+            },
+          }),
+        { wrapper },
+      );
+
+      await act(async () => {
+        await expect(result.current.execute()).resolves.toMatchObject({ success: false });
+      });
+    });
+  });
 });

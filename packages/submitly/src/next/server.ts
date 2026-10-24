@@ -75,6 +75,10 @@ const defaultMessages: RunActionMessages = {
  * runs `handler`, normalizes its result, revalidates on success, and turns
  * thrown errors into a failed `ActionResult`. Next.js `redirect()`,
  * `notFound()`, `forbidden()` and `unauthorized()` are re-thrown untouched.
+ *
+ * Errors thrown by the handler (or `normalize` / `revalidate`) never reject:
+ * they become a failed result. Errors thrown by your own `mapError`,
+ * `onError` or `messages` function are not caught and reject.
  */
 export function runAction<TSchema extends StandardSchemaV1, TRaw, TData = DefaultResultData<TRaw>>(
   options: RunActionOptions<TSchema, TRaw, TData>,
@@ -86,7 +90,13 @@ export function runAction<TSchema extends StandardSchemaV1, TRaw, TData = Defaul
  * Creates a `runAction` with app-wide defaults (messages, error mapping,
  * logging). Per-call options win.
  *
+ * A `"use server"` file may only export async functions, so the configured
+ * `runAction` cannot be exported from one. Create it in a regular server-only
+ * module (no `"use server"`; add `import "server-only"` if you like), and
+ * import it from your `"use server"` action files:
+ *
  * ```ts
+ * // lib/run-action.ts  (not a "use server" file)
  * export const runAction = createRunAction({
  *   messages: async () => {
  *     const t = await getTranslations("Crud");
@@ -94,6 +104,10 @@ export function runAction<TSchema extends StandardSchemaV1, TRaw, TData = Defaul
  *   },
  *   onError: (error) => logger.error(error),
  * });
+ *
+ * // actions.ts
+ * "use server";
+ * import { runAction } from "@/lib/run-action";
  * ```
  */
 export function createRunAction(defaults: RunActionDefaults) {

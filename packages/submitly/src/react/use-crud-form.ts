@@ -42,7 +42,13 @@ export type UseCrudFormOptions<
 
 export type UseCrudFormReturn<TFieldValues extends FieldValues, TOutput> = {
   form: UseFormReturn<TFieldValues, unknown, TOutput>;
-  /** Pass to `<form onSubmit>`. Never rejects; ignores submits while one is in flight. */
+  /**
+   * Pass to `<form onSubmit>`. Ignores submits while one is in flight. The
+   * action's own errors and failures never reject (they become `serverErrors`
+   * and field errors); errors thrown by your own callbacks (`onSuccess`,
+   * `onError`, `notify` handlers, `onMutated`, `navigate`, the provider's
+   * `onError`) are not caught and reject the returned promise.
+   */
   onSubmit: (event?: BaseSyntheticEvent) => Promise<void>;
   serverErrors: string[];
   clearServerErrors: () => void;
@@ -122,6 +128,7 @@ export function useCrudForm<TFieldValues extends FieldValues, TOutput = TFieldVa
 
           setServerErrors(collectFormErrors(result));
           applyFieldErrors(form, result);
+          config.onError(result);
           options.onError?.(result);
         })(event);
       } finally {

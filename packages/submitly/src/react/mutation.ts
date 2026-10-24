@@ -5,7 +5,13 @@ import type { CrudConfig } from "./provider";
 
 /** Options shared by `useCrudForm` and `useCrudAction`. */
 export type MutationOptions<TData> = {
+  /** Runs after `notify.success`, `onMutated` and (forms) the reset. */
   onSuccess?: (result: ActionResult<TData>) => void;
+  /**
+   * Runs for every failed result, after `notify.error` and the provider's
+   * `onError`. Not called for interrupts. Per-call and provider `onError` both
+   * run; this one does not replace the provider's.
+   */
   onError?: (result: ActionResult<TData>) => void;
   /** Navigate after success through the provider's `navigate`. */
   redirectTo?: string | ((result: ActionResult<TData>) => string | null | undefined);
@@ -27,8 +33,11 @@ export type CallOutcome<TData> =
   | { interrupted: true; result: ActionResult<TData> };
 
 /**
- * Calls the action and always resolves, never rejects. `interrupted` means
- * the action threw a framework control-flow error (see `isInterrupt`).
+ * Calls the action. Errors thrown by the action (or by `normalize`) never
+ * reject: they go through `mapError`. `interrupted` means the action threw a
+ * framework control-flow error (see `isInterrupt`). An error thrown by
+ * `mapError` or `isInterrupt` themselves is a bug in your own callback and
+ * propagates.
  */
 export async function callAction<TInput, TData>(
   action: (input: TInput) => Promise<unknown>,

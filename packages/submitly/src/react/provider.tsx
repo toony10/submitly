@@ -3,7 +3,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 import { defaultMapError, defaultNormalize } from "../core/normalize";
-import type { MapError, Normalize, NotifyHandlers } from "../core/types";
+import type { ActionResult, MapError, Normalize, NotifyHandlers } from "../core/types";
 
 /** Fully resolved configuration, as read by the hooks. */
 export type CrudConfig = {
@@ -20,6 +20,14 @@ export type CrudConfig = {
    * notify, no errors, no callbacks.
    */
   isInterrupt: (error: unknown) => boolean;
+  /**
+   * Called for every failed result from `useCrudForm` / `useCrudAction`
+   * (a returned `{ success: false }` or a mapped thrown error), after
+   * `notify.error` and before the per-call `onError`. Never called for
+   * interrupts. Use it for cross-cutting failure handling such as redirecting
+   * to a login page on a 401.
+   */
+  onError: (result: ActionResult) => void;
 };
 
 export type CrudProviderProps = {
@@ -30,6 +38,7 @@ export type CrudProviderProps = {
   normalize?: Normalize;
   mapError?: MapError;
   isInterrupt?: (error: unknown) => boolean;
+  onError?: (result: ActionResult) => void;
 };
 
 const noop = () => {};
@@ -45,6 +54,7 @@ export const defaultCrudConfig: CrudConfig = {
   normalize: defaultNormalize,
   mapError: defaultMapError,
   isInterrupt: () => false,
+  onError: noop,
 };
 
 const CrudConfigContext = createContext<CrudConfig>(defaultCrudConfig);
@@ -62,6 +72,7 @@ export function CrudProvider({
   normalize,
   mapError,
   isInterrupt,
+  onError,
 }: CrudProviderProps) {
   const parent = useContext(CrudConfigContext);
 
@@ -76,6 +87,7 @@ export function CrudProvider({
       normalize: normalize ?? parent.normalize,
       mapError: mapError ?? parent.mapError,
       isInterrupt: isInterrupt ?? parent.isInterrupt,
+      onError: onError ?? parent.onError,
     }),
     [
       parent,
@@ -86,6 +98,7 @@ export function CrudProvider({
       normalize,
       mapError,
       isInterrupt,
+      onError,
     ],
   );
 

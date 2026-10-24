@@ -1,0 +1,11 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "env": ["REGISTRY_URL"],
+      "outputs": ["$TURBO_ROOT$/apps/docs/public/r/**"]
+    }
+  }
+}

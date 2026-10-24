@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "paths": {
+      "@/components/ui/*": ["./items/*", "./shadcn/ui/*"],
+      "@/lib/utils": ["./shadcn/lib/utils"]
+    }
+  },
+  "include": ["items", "shadcn", "test", "*.config.ts"]
+}

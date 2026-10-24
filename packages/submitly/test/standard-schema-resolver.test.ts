@@ -177,4 +177,86 @@ describe("standardSchemaResolver", () => {
     await resolver({ name: "ok" }, undefined, opts);
     expect(ref.setCustomValidity).toHaveBeenLastCalledWith("");
   });
+
+  describe("several issues on one field", () => {
+    const schema: StandardSchemaV1<{ name: string }, { name: string }> = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: () => ({
+          issues: [
+            { message: "Too short", path: ["name"] },
+            { message: "Needs a digit", path: ["name"] },
+          ],
+        }),
+      },
+    };
+    const resolver = standardSchemaResolver<{ name: string }, unknown, { name: string }>(schema);
+
+    it("accumulates every message in `types` under criteriaMode all", async () => {
+      const result = await resolver({ name: "" }, undefined, options({ criteriaMode: "all" }));
+
+      expect(result.errors).toMatchObject({
+        name: { message: "Too short", types: { 0: "Too short", 1: "Needs a digit" } },
+      });
+    });
+
+    it("keeps only the first message by default", async () => {
+      const result = await resolver({ name: "" }, undefined, options());
+      const error = (result.errors as { name: { message: string } }).name;
+
+      expect(error.message).toBe("Too short");
+      expect(error).not.toHaveProperty("types");
+    });
+  });
+
+  describe("native validation", () => {
+    const schema = z4.object({ user: z4.object({ name: z4.string().min(2, "Too short") }) });
+    const resolver = standardSchemaResolver<{ user: { name: string } }, unknown, { user: { name: string } }>(schema);
+
+    it("validates nested fields by registered name", async () => {
+      const ref = { setCustomValidity: vi.fn(), reportValidity: vi.fn(() => false) };
+      const opts = options<{ user: { name: string } }>({
+        shouldUseNativeValidation: true,
+        names: ["user.name"],
+        fields: { user: { name: { ref, name: "user.name" } } } as never,
+      });
+
+      await resolver({ user: { name: "" } }, undefined, opts);
+      expect(ref.setCustomValidity).toHaveBeenLastCalledWith("Too short");
+      expect(ref.reportValidity).toHaveBeenCalledTimes(1);
+
+      await resolver({ user: { name: "ok" } }, undefined, opts);
+      expect(ref.setCustomValidity).toHaveBeenLastCalledWith("");
+      expect(ref.reportValidity).toHaveBeenCalledTimes(2);
+    });
+
+    it("walks the nested `fields` tree when `names` is absent", async () => {
+      const ref = { setCustomValidity: vi.fn(), reportValidity: vi.fn(() => false) };
+      const opts = options<{ user: { name: string } }>({
+        shouldUseNativeValidation: true,
+        names: undefined,
+        fields: { user: { name: { ref, name: "user.name" } } } as never,
+      });
+
+      await resolver({ user: { name: "" } }, undefined, opts);
+      expect(ref.setCustomValidity).toHaveBeenLastCalledWith("Too short");
+      expect(ref.reportValidity).toHaveBeenCalledTimes(1);
+    });
+
+    it("reports every ref of a radio or checkbox group", async () => {
+      const refs = [1, 2].map(() => ({ setCustomValidity: vi.fn(), reportValidity: vi.fn(() => false) }));
+      const opts = options<{ user: { name: string } }>({
+        shouldUseNativeValidation: true,
+        names: ["user.name"],
+        fields: { user: { name: { refs, name: "user.name" } } } as never,
+      });
+
+      await resolver({ user: { name: "" } }, undefined, opts);
+
+      for (const ref of refs) {
+        expect(ref.setCustomValidity).toHaveBeenLastCalledWith("Too short");
+      }
+    });
+  });
 });

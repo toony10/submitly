@@ -13,9 +13,33 @@ import {
 
 import { getDotPath } from "../core/errors";
 
-// Ported from `standardSchemaResolver`, `toNestErrors` and `validateFieldsNatively`
-// in @hookform/resolvers (MIT, https://github.com/react-hook-form/resolvers).
-// Owning this avoids a peer dependency that only existed for a ~60 line function.
+/*!
+ * Ported from `standardSchemaResolver`, `toNestErrors` and `validateFieldsNatively`
+ * in @hookform/resolvers (https://github.com/react-hook-form/resolvers).
+ * Owning this avoids a peer dependency that only existed for a ~60 line function.
+ *
+ * MIT License
+ *
+ * Copyright (c) 2019-present Beier(Bill) Luo
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
 
 const schemaRootKey = Symbol("schema root");
 
@@ -165,17 +189,33 @@ function setNativeValidity(ref: NativeRef | undefined, path: string, errors: obj
   }
 }
 
+/** Registered field names found in react-hook-form's nested `fields` tree (used when `names` is absent). */
+function collectFieldNames(fields: unknown, prefix = ""): string[] {
+  if (!fields || typeof fields !== "object") {
+    return [];
+  }
+
+  const node = fields as Record<string, unknown>;
+
+  if (prefix && ((typeof node.ref === "object" && node.ref !== null) || Array.isArray(node.refs))) {
+    return [prefix];
+  }
+
+  return Object.keys(node).flatMap((key) => collectFieldNames(node[key], prefix ? `${prefix}.${key}` : key));
+}
+
 function validateFieldsNatively<TFieldValues extends FieldValues>(
   errors: object,
   options: ResolverOptions<TFieldValues>,
 ) {
-  for (const path in options.fields) {
-    const field = options.fields[path] as { ref?: NativeRef; refs?: NativeRef[] } | undefined;
+  // `fields` is nested (`{ user: { name } }`), so walk registered names rather than top-level keys.
+  for (const name of options.names?.length ? options.names : collectFieldNames(options.fields)) {
+    const field = get(options.fields, name) as { ref?: NativeRef; refs?: NativeRef[] } | undefined;
 
     if (field?.ref && typeof field.ref.reportValidity === "function") {
-      setNativeValidity(field.ref, path, errors);
+      setNativeValidity(field.ref, name, errors);
     } else {
-      field?.refs?.forEach((ref) => setNativeValidity(ref, path, errors));
+      field?.refs?.forEach((ref) => setNativeValidity(ref, name, errors));
     }
   }
 }

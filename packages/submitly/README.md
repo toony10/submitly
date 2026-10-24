@@ -7,12 +7,10 @@ Headless form submission for React and Next.js: Standard Schema validation, type
 ## Install
 
 ```bash
-npm i submitly react-hook-form @hookform/resolvers@^5
+npm i submitly react-hook-form
 ```
 
-Peer dependencies: `react >=18.2`, `react-hook-form ^7.55`, `@hookform/resolvers ^5 || ^6`, and `next >=15` (optional, only for the `submitly/next*` entry points). Use any schema library that implements [Standard Schema](https://standardschema.dev) (Zod 3.24+ / 4, Valibot 1, ArkType 2, ...).
-
-> `@hookform/resolvers@6.0.0` currently fails `npm install` with an `ERESOLVE` peer conflict. Until that is resolved, npm users should install `@hookform/resolvers@^5`.
+Peer dependencies: `react >=18.2`, `react-hook-form ^7.55`, and `next >=15` (optional, only for the `submitly/next*` entry points). Use any schema library that implements [Standard Schema](https://standardschema.dev) (Zod 3.24+ / 4, Valibot 1, ArkType 2, ...).
 
 ## Entry points
 
@@ -86,7 +84,7 @@ export function ProductForm() {
 
 What happens on submit:
 
-1. The schema validates the values (client side, through `@hookform/resolvers/standard-schema`).
+1. The schema validates the values (client side, through a built-in react-hook-form resolver for Standard Schema).
 2. `action` receives the schema's parsed output. Its return value goes through `normalize`; a thrown error goes through `mapError`. The returned promise never rejects.
 3. On success: `notify.success` (when the result has a `message`), `onMutated`, form reset to `defaultValues` (`resetOnSuccess: false` to skip), `onSuccess`, then `redirectTo` via the provider's `navigate`.
 4. On failure: `notify.error`, `serverErrors` is filled with `result.errors`, each `result.fieldErrors` entry is applied with `form.setError` (focusing the first), and `onError` runs.

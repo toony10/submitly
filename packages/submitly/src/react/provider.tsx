@@ -3,9 +3,9 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 import { defaultMapError, defaultNormalize } from "../core/normalize";
-import type { CrudLabels, MapError, Normalize, NotifyHandlers } from "../core/types";
+import type { MapError, Normalize, NotifyHandlers } from "../core/types";
 
-/** Fully resolved configuration, as read by the hooks and registry components. */
+/** Fully resolved configuration, as read by the hooks. */
 export type CrudConfig = {
   notify: Required<NotifyHandlers>;
   /** Called after every successful mutation (refetch, `router.refresh()`, ...). */
@@ -20,7 +20,6 @@ export type CrudConfig = {
    * notify, no errors, no callbacks.
    */
   isInterrupt: (error: unknown) => boolean;
-  labels: CrudLabels;
 };
 
 export type CrudProviderProps = {
@@ -31,7 +30,6 @@ export type CrudProviderProps = {
   normalize?: Normalize;
   mapError?: MapError;
   isInterrupt?: (error: unknown) => boolean;
-  labels?: Partial<CrudLabels>;
 };
 
 const noop = () => {};
@@ -47,15 +45,14 @@ export const defaultCrudConfig: CrudConfig = {
   normalize: defaultNormalize,
   mapError: defaultMapError,
   isInterrupt: () => false,
-  labels: { confirm: "Confirm", cancel: "Cancel" },
 };
 
 const CrudConfigContext = createContext<CrudConfig>(defaultCrudConfig);
 
 /**
- * Supplies notify / refresh / navigation / result mapping / labels to every
+ * Supplies notify / refresh / navigation / result mapping to every
  * submitly hook below it. All props are optional; nested providers override
- * their parent prop by prop (`notify` and `labels` merge per key).
+ * their parent prop by prop (`notify` merges per key).
  */
 export function CrudProvider({
   children,
@@ -65,7 +62,6 @@ export function CrudProvider({
   normalize,
   mapError,
   isInterrupt,
-  labels,
 }: CrudProviderProps) {
   const parent = useContext(CrudConfigContext);
 
@@ -80,7 +76,6 @@ export function CrudProvider({
       normalize: normalize ?? parent.normalize,
       mapError: mapError ?? parent.mapError,
       isInterrupt: isInterrupt ?? parent.isInterrupt,
-      labels: { ...parent.labels, ...stripUndefined(labels) },
     }),
     [
       parent,
@@ -91,7 +86,6 @@ export function CrudProvider({
       normalize,
       mapError,
       isInterrupt,
-      labels,
     ],
   );
 
@@ -101,14 +95,4 @@ export function CrudProvider({
 /** The resolved provider configuration (built-in defaults when there is no provider). */
 export function useCrudConfig(): CrudConfig {
   return useContext(CrudConfigContext);
-}
-
-function stripUndefined<T extends object>(value: T | undefined): Partial<T> {
-  if (!value) {
-    return {};
-  }
-
-  return Object.fromEntries(
-    Object.entries(value).filter(([, entry]) => entry !== undefined),
-  ) as Partial<T>;
 }

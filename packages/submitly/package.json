@@ -1,15 +1,19 @@
 {
   "name": "submitly",
   "version": "0.0.0",
-  "description": "shadcn-native CRUD dialogs and form submission for React and Next.js: validation, pending locks, server errors and post-mutation refresh.",
+  "description": "Headless form submission for React and Next.js: Standard Schema validation, typed actions, server errors mapped to fields, pending/dialog locks and post-mutation refresh. Works with any UI.",
   "keywords": [
     "react",
     "nextjs",
     "react-hook-form",
-    "shadcn",
     "crud",
     "forms",
+    "form-submission",
+    "validation",
+    "headless",
     "standard-schema",
+    "zod",
+    "valibot",
     "server-actions"
   ],
   "license": "MIT",

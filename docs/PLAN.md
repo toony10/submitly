@@ -2,36 +2,40 @@
 
 Extract `src/lib/forms` from tona-dashboard into a standalone, framework-agnostic package for **React + Vite** and **Next.js** users.
 
+> **2026-10-24: pivoted to headless; shadcn registry removed.** `submitly` ships no UI components; the `labels` provider option and `CrudLabels` type were dropped with them. Sections below reflect the headless scope.
+
 > Name: **submitly** — free on npm (incl. `submit-ly`) as of 2026-10-24. Still check GitHub, the domain, and reserve the `@submitly` npm org.
 
 ---
 
 ## 1. Positioning
 
-**One line:** shadcn-native CRUD dialogs and form submission — add / edit / delete flows with validation, pending locks, server errors, and post-mutation refresh, in a few lines per entity.
+**One line:** headless form submission for React and Next.js — Standard Schema validation, typed actions, server errors mapped to fields, pending and dialog locks, and post-mutation refresh. Works with any UI.
 
-**Not** another form library. It sits on top of `react-hook-form` and adds the CRUD UX layer that existing tools leave to the app:
+**Not** another form library. It sits on top of `react-hook-form` and adds the submission layer that existing tools leave to the app:
 
 | Concern | react-hook-form | next-safe-action / zsa | TanStack Query | **This kit** |
 | --- | --- | --- | --- | --- |
 | Field state + validation | ✅ | — | — | uses RHF |
 | Typed server action | — | ✅ | — | optional `/next` helper |
 | Mutation state | — | ✅ | ✅ | ✅ |
-| Dialog that remounts form on open | — | — | — | ✅ |
-| Dialog locked while saving | — | — | — | ✅ (automatic) |
-| Confirm-delete flow + redirect | — | — | — | ✅ |
-| Server errors → fields + error panel | partial | partial | — | ✅ |
+| Headless dialog hook that remounts form on open | — | — | — | ✅ (`useControllableDialog`) |
+| Dialog locked while saving | — | — | — | ✅ (automatic, any dialog library) |
+| Non-form mutation (delete, toggle) + redirect | — | — | — | ✅ (`useCrudAction`) |
+| Server errors → fields + `serverErrors` list | partial | partial | — | ✅ |
 | Toast + refresh conventions | — | — | partial | ✅ (pluggable) |
 
 ### Goals
 - Works in Next.js (App Router, server actions) **and** plain React (Vite, React Router, TanStack Router).
 - Zero opinions about transport: an action is any `(input) => Promise<result>`.
-- Zero i18n: every visible string is a prop, a provider label, or the developer's own data.
+- Zero i18n and zero UI: the package renders nothing; every visible string is the developer's own.
 - Zero toast/router/loader lock-in: injected through a provider.
 - Any schema library via Standard Schema (Zod 3.24+, Zod 4, Valibot, ArkType).
+- Any UI: plain elements, shadcn, Radix, Base UI, Headless UI, native `<dialog>`.
 
 ### Non-goals (v1)
 - Localization, API client, auth, token refresh.
+- UI components of any kind (dialogs, fields, buttons, error panels): bring your own.
 - Data tables, filters, file upload, rich text.
 - No-JS progressive enhancement (`<form action>` + `useActionState`) — revisit post-1.0.
 - Multi-step wizards.
@@ -40,14 +44,13 @@ Extract `src/lib/forms` from tona-dashboard into a standalone, framework-agnosti
 
 ## 2. Distribution model
 
-Two channels, because the kit has two very different halves.
+A single channel: the **npm package**.
 
 | Part | Channel | Why |
 | --- | --- | --- |
-| Hooks, provider, types, `runAction` | **npm package** | Logic users should upgrade, not fork. |
-| Dialogs, `Form*` fields, `FormErrors`, `SubmitButton` | **shadcn registry** (`npx shadcn add …`) | Built on the user's own shadcn `Dialog` / `Button` / `Label`; copied in so users own the styling. |
+| Hooks, provider, headless dialog helpers, types, `runAction` | **npm package** (`submitly`) | Logic users should upgrade, not fork. |
 
-Registry items depend on the npm package (`dependencies`) and on shadcn primitives (`registryDependencies`), so one `shadcn add` installs everything.
+UI is out of scope: bring your own components. The package renders nothing, so it works with plain elements or any component library.
 
 ---
 
@@ -64,11 +67,8 @@ submitly/
 │     │  ├─ react/              # provider, hooks, dialog-lock context ("use client")
 │     │  └─ next/               # runAction + Next preset
 │     └─ package.json           # exports: ".", "./next", "./next/server"
-├─ registry/
-│  ├─ items/                    # form, form-dialog, confirm-dialog, form-errors, submit-button
-│  └─ registry.json
 ├─ apps/
-│  └─ docs/                     # Next.js docs site; also hosts /r/*.json registry files
+│  └─ docs/                     # Next.js docs site
 ├─ examples/
 │  ├─ next-app/                 # server actions + revalidatePath
 │  └─ vite-app/                 # fetch + React Router + TanStack Query
@@ -79,7 +79,7 @@ submitly/
 
 | Import | Contents | Runtime |
 | --- | --- | --- |
-| `submitly` | `CrudProvider`, `useCrudForm`, `useCrudAction`, `useControllableDialog`, `useDialogLock`, types | client (`"use client"` preserved) |
+| `submitly` | `CrudProvider`, `useCrudForm`, `useCrudAction`, `useControllableDialog`, dialog lock hooks, types | client (`"use client"` preserved) |
 | `submitly/next` | `NextCrudProvider` (router.refresh + router.push preset) | client |
 | `submitly/next/server` | `runAction` | server (`import "server-only"`) |
 
@@ -94,7 +94,7 @@ type ActionResult<TData = unknown> = {
   success: boolean;
   message?: string;                         // shown in toast if present
   data?: TData;
-  errors?: string[];                        // form-level errors → FormErrors panel
+  errors?: string[];                        // form-level errors → serverErrors
   fieldErrors?: Record<string, string[]>;   // NEW → form.setError per field
   statusCode?: number;                      // now optional (Vite users rarely have one)
 };
@@ -119,13 +119,12 @@ mapError?: (error: unknown) => ActionResult;     // thrown errors (network, 500,
   navigate={(to) => navigate(to)}                     // Next preset: router.push(to)
   normalize={fromMyApi}
   mapError={fromAxiosError}
-  labels={{ confirm: "Confirm", cancel: "Cancel", errorsTitle: "Please fix the following" }}
 >
 ```
 
 Resolution order everywhere: **per-call option → provider → built-in default**.
 
-Labels are plain strings. Multi-language apps fill them from their own i18n library; the package never imports one.
+The package has no visible strings of its own. Multi-language apps localize messages in their own components and in `runAction`'s `messages` option; the package never imports an i18n library.
 
 ### 4.3 `useCrudForm`
 
@@ -146,7 +145,7 @@ Behaviour:
 2. Call `action`; `normalize` the result; `mapError` on throw (**fixes review issue #3**).
 3. On success: notify → `onMutated` → reset → `onSuccess` → `redirectTo`.
 4. On failure: notify, set `serverErrors`, apply `fieldErrors` with `form.setError`.
-5. Reports `isSubmitting` to the nearest `FormDialog` via `useDialogLock` (**fixes the dead `isPending` prop**).
+5. Locks the nearest dialog scope (`DialogLockProvider`) while submitting, automatically (**fixes the dead `isPending` prop**).
 
 ### 4.4 `useCrudAction` (renamed from `useConfirmAction`)
 
@@ -160,23 +159,20 @@ const { execute, isPending, serverErrors, clearServerErrors } = useCrudAction({ 
 - In-flight guard via ref: double clicks never fire twice.
 - `execute` identity stable (latest-ref pattern) — the current version re-creates it every render because the router wrapper returns a new object.
 
-### 4.5 Dialogs (registry)
+### 4.5 Headless dialog helpers
 
-**`FormDialog`**
-- Render prop `{ onClose, formKey }` stays.
-- `formKey` bumps on every false→true `open` transition — including **controlled** opens, which today don't remount.
-- Provides `DialogLockContext`; the inner `useCrudForm` locks close/escape/overlay automatically. `isPending` prop kept only as a manual override.
-- Drop `redirectTo` / `onSuccess` from its props (they were accepted and ignored).
+No dialog component ships. Three small, library-agnostic helpers work with any dialog (Radix, Base UI, Headless UI, native `<dialog>`):
 
-**`ConfirmDialog`**
-- Built on `useCrudAction`. Labels from props → provider.
-- `variant: "default" | "destructive"`.
+**`useControllableDialog({ open, defaultOpen, onOpenChange, locked })`**
+- Returns `{ open, setOpen, openKey, isControlled }`.
+- `openKey` bumps on every false→true `open` transition — including **controlled** opens, which today don't remount. Use it as the `key` of the form.
+- While `locked` (boolean or `() => boolean`), every open-state change is ignored.
 
-**`FormErrors`** — theme tokens instead of `text-black`; index-based keys (**fixes #4**).
+**`useDialogLockScope()` + `DialogLockProvider`**
+- The dialog owner calls `useDialogLockScope()` and wraps its content in `<DialogLockProvider scope={scope}>`. The inner `useCrudForm` / `useCrudAction` lock close / escape / overlay automatically while pending. Pass `isLocked` to `useControllableDialog`'s `locked`.
 
-**`SubmitButton`** — `cn("group", className)`; drop the hover `translate-x` on the spinner (RTL-unsafe).
-
-**`Form*` primitives** — keep shadcn's API; fix the `useFormField` guard so it actually throws outside `<FormField>`.
+**`useDialogLock(locked)` / `useDialogLockHandle()`**
+- Manual lock for custom pending states. No-ops outside a dialog.
 
 ### 4.6 `runAction` (`/next/server`)
 
@@ -210,7 +206,6 @@ export async function saveProduct(input: unknown) {
 | `@hookform/resolvers` | `^5` | `standardSchemaResolver` |
 | Schema libs | Zod 3.24+, Zod 4, Valibot 1, ArkType 2 | via Standard Schema, no direct dependency |
 | `next` | `>=15` | optional peer, only for `/next*` entries |
-| shadcn | v3+ registry format | for UI items |
 
 ESM-only output, `"sideEffects": false`, `"use client"` banners preserved per file (tsdown, or tsup + a directives plugin).
 
@@ -223,7 +218,7 @@ ESM-only output, `"sideEffects": false`, `"use client"` banners preserved per fi
 | `next/navigation` `useRouter` in hooks | `provider.onMutated` / `provider.navigate` |
 | `useRouterWithTopLoader` | removed (app wires the loader inside `navigate`) |
 | `sonner` imports | `provider.notify` |
-| `useTranslations("Crud")` | `labels` props / provider |
+| `useTranslations("Crud")` | the app's own components; `runAction` `messages` |
 | `ApiResponse` import in `runAction` | generic `ActionResult` + `normalize` |
 | `z.ZodType<…, z.ZodTypeDef, …>` | Standard Schema generics |
 | `useConfirmAction` | `useCrudAction` |
@@ -237,14 +232,14 @@ The dashboard becomes the first consumer: replace `src/lib/forms` with the packa
 
 **Tests (Vitest + Testing Library + happy-dom)**
 - Hooks: success / failure / throw / double-submit / fieldErrors / reset / redirect / notify override / `notify: false`.
-- Dialogs: remount on uncontrolled and controlled open; lock while pending; confirm closes on success only.
+- Dialog helpers: remount on uncontrolled and controlled open; lock while pending; a confirm flow built on `useCrudAction` closes on success only.
 - `runAction`: validation, handler error, redirect re-thrown, revalidate called only on success.
 - Schema matrix: same suite against Zod 3, Zod 4, Valibot.
 - Type tests (`expectTypeOf`): inferred values/output types, `TData` flows to `onSuccess`.
 
 **E2E (Playwright)** against `examples/next-app` and `examples/vite-app`: add → edit → delete happy path, server error, session-expiry redirect.
 
-**CI (GitHub Actions):** lint · typecheck · test · build · `publint` · `@arethetypeswrong/cli` · `size-limit` (budget: core < 4 kB gzip) · registry build check.
+**CI (GitHub Actions):** lint · typecheck · test · build · `publint` · `@arethetypeswrong/cli` · `size-limit` (budget: core < 4 kB gzip).
 
 **Release:** Changesets, semver, `0.x` until the API settles, provenance-signed npm publishes.
 
@@ -252,10 +247,10 @@ The dashboard becomes the first consumer: replace `src/lib/forms` with the packa
 
 ## 8. Documentation
 
-Docs site in `apps/docs` (Fumadocs or Nextra), also serving `/r/*.json`.
+Docs site in `apps/docs` (Fumadocs or Nextra).
 
 1. Introduction & comparison table (section 1).
-2. Install — npm + `shadcn add`.
+2. Install — npm.
 3. Quick start — Next.js.
 4. Quick start — Vite + React Router + TanStack Query.
 5. Concepts: result contract, provider, resolution order, dialog lock.
@@ -272,14 +267,14 @@ Docs site in `apps/docs` (Fumadocs or Nextra), also serving `/r/*.json`.
 | 0 | Decisions & scaffold | MIT license, monorepo, tooling, CI skeleton | `pnpm build` + CI green on an empty package |
 | 1 | Core extraction | `core/` + `react/`: types, provider, `useCrudForm`, `useCrudAction`, `useControllableDialog`, dialog lock; all review fixes | Unit + type tests pass; no `next`, `sonner`, `next-intl` imports in `react/` |
 | 2 | Next adapter | `/next` provider preset, `/next/server` `runAction` | Redirect re-throw test passes; Next example works |
-| 3 | UI registry | 5 registry items, `registry.json`, hosted build | `npx shadcn add <url>/r/form-dialog.json` works in a clean Next app and a clean Vite app |
+| 3 | ~~UI registry~~ | removed (headless pivot) | — |
 | 4 | Examples & E2E | `next-app`, `vite-app`, Playwright suites | E2E green in CI |
 | 5 | Docs | Site with sections 1–8 | Every public export documented; both quick starts copy-paste runnable |
 | 6 | Dogfood | tona-dashboard switched to the package | Dashboard CRUD + login unchanged in behaviour |
 | 7 | Release | `0.1.0` on npm, announce | publint / attw clean; size budget met |
 | 8 | Toward 1.0 | Feedback, API freeze, optional `useActionState` support | Two external projects using it without forking hooks |
 
-Phases 2 and 3 can run in parallel once Phase 1 lands.
+Phase 2 follows Phase 1.
 
 ---
 
@@ -287,7 +282,7 @@ Phases 2 and 3 can run in parallel once Phase 1 lands.
 
 1. ~~**Name**~~ — decided: `submitly`.
 2. **React 18 support** — costs little now; drop it if it blocks anything.
-3. **Ship UI on npm too?** Registry-only is simpler and fits shadcn users; a headless npm UI would serve non-shadcn users but doubles the surface. Recommendation: registry-only for v1.
+3. ~~**Ship UI?**~~ — decided: no UI shipped. The package is headless and UI-agnostic; the shadcn registry was removed.
 4. **`fieldErrors` key format** — dotted paths (`items.0.name`) to match RHF.
 5. **Default `notify`** — no-op (recommended) vs `console`.
 6. **Keep `statusCode` in the contract?** Optional for now; drop it in 1.0 if nobody uses it.
@@ -298,8 +293,8 @@ Phases 2 and 3 can run in parallel once Phase 1 lands.
 
 | Risk | Mitigation |
 | --- | --- |
-| Overlap with next-safe-action | Position on the dialog/CRUD layer; document using both together (their action, our hooks). |
+| Overlap with next-safe-action | Position on the submission layer (forms, dialog locks, result contract); document using both together (their action, our hooks). |
 | `"use client"` stripped by bundler | Build check that greps output for directives; test import from a Server Component in the Next example. |
 | Standard Schema typing gaps for transforms | Type tests on Zod `transform` / `pipe` (e.g. `optionalString`) in Phase 1. |
-| shadcn registry format changes | Pin the shadcn CLI version in CI; registry build check. |
-| Scope creep (tables, uploads, i18n) | Non-goals list above; separate packages later if wanted. |
+| Scope creep (UI components, tables, uploads, i18n) | Non-goals list above; separate packages later if wanted. |
+

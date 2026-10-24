@@ -8,5 +8,3 @@ coverage
 *.tgz
 .DS_Store
 .env*.local
-.build
-apps/docs/public/r

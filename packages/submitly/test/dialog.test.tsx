@@ -14,7 +14,7 @@ import {
 } from "../src";
 import { deferred } from "./helpers";
 
-/** Minimal headless stand-in for the registry FormDialog. */
+/** Minimal headless dialog wrapping a form. */
 function TestDialog({
   open,
   onOpenChange,
@@ -196,7 +196,7 @@ describe("dialog lock", () => {
     expect(() => renderHook(() => useDialogLock(true))).not.toThrow();
   });
 
-  /** Headless stand-in for the registry ConfirmDialog. */
+  /** Headless confirm dialog. */
   function Confirm({ action }: { action: () => Promise<ActionResult> }) {
     return (
       <TestDialog>

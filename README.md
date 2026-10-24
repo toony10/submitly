@@ -1,6 +1,6 @@
 # submitly
 
-shadcn-native CRUD dialogs and form submission for React and Next.js: add / edit / delete flows with validation, pending locks, server errors and post-mutation refresh, in a few lines per entity.
+Headless form submission for React and Next.js: Standard Schema validation, typed actions, server errors mapped to fields, pending and dialog locks, and post-mutation refresh. Bring your own UI.
 
 > Status: pre-release (`0.x`). See [docs/PLAN.md](docs/PLAN.md).
 
@@ -9,8 +9,7 @@ shadcn-native CRUD dialogs and form submission for React and Next.js: add / edit
 | Path | What |
 | --- | --- |
 | `packages/submitly` | npm package: hooks, provider, types, `runAction` |
-| `registry` | shadcn registry items (dialogs, `Form*` fields, `FormErrors`, `SubmitButton`) |
-| `apps/docs` | docs site + hosted registry (`/r/*.json`) |
+| `apps/docs` | docs site |
 | `examples/*` | Next.js and Vite example apps |
 
 ## Development

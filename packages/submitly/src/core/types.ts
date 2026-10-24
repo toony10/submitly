@@ -8,7 +8,7 @@ export type ActionResult<TData = unknown> = {
   /** Shown through `notify` when present. */
   message?: string;
   data?: TData;
-  /** Form-level errors, rendered by the `FormErrors` panel. */
+  /** Form-level errors, collected into `serverErrors` by the hooks. */
   errors?: string[];
   /** Field errors keyed by dotted path (`items.0.name`), applied with `form.setError`. */
   fieldErrors?: FieldErrorMap;
@@ -27,14 +27,6 @@ export type MapError = (error: unknown) => ActionResult;
 export type NotifyHandlers = {
   success?: (result: ActionResult) => void;
   error?: (result: ActionResult) => void;
-};
-
-/** Visible strings used by the registry components. Fill them from your own i18n. */
-export type CrudLabels = {
-  confirm: string;
-  cancel: string;
-  /** Heading of the `FormErrors` panel. No heading when undefined. */
-  errorsTitle?: string;
 };
 
 /**

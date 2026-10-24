@@ -22,6 +22,8 @@
         "^build"
       ]
     },
+    "test:react18": {},
+    "typecheck:react18": {},
     "check-exports": {
       "dependsOn": [
         "build"

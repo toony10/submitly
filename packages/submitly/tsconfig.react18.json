@@ -1,0 +1,16 @@
+{
+  // Type-checks the React-only sources against @types/react 18 (`pnpm typecheck:react18`).
+  // `src/next` is excluded: Next 15+ requires React 19.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "react": ["./node_modules/@types/react-18"],
+      "react/jsx-runtime": ["./node_modules/@types/react-18/jsx-runtime"],
+      "react/jsx-dev-runtime": ["./node_modules/@types/react-18/jsx-dev-runtime"],
+      "react-dom": ["./node_modules/@types/react-dom-18"],
+      "react-dom/client": ["./node_modules/@types/react-dom-18/client"]
+    }
+  },
+  "include": ["src/core", "src/react", "src/index.ts"],
+  "exclude": ["src/next"]
+}

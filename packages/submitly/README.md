@@ -339,7 +339,7 @@ With the default `normalize`, an action can also return a plain value (an entity
 
 ## Author
 
-Created by [toony10](https://anton-web-portfolio.vercel.app/) ([GitHub](https://github.com/toony10)). Source, issues and releases: [github.com/toony10/submitly](https://github.com/toony10/submitly).
+Created by [Anton Amir](https://anton-web-portfolio.vercel.app/) ([@toony10 on GitHub](https://github.com/toony10)). Source, issues and releases: [github.com/toony10/submitly](https://github.com/toony10/submitly).
 
 ## License
 

@@ -273,6 +273,8 @@ export async function saveProduct(input: unknown) {
 
 Then use the action directly from the client hooks: `useCrudForm({ schema, action: saveProduct, ... })`.
 
+> **Share schemas carefully.** `useCrudForm` passes the schema's *parsed output* to the action, and `runAction` validates it again with the same schema. The schema must therefore accept its own output. For example, a field that turns `""` into `undefined` needs `.optional()` before the transform, and a `z.coerce.number()` field already accepts the number it produces.
+
 ## The `ActionResult` contract
 
 Every action resolves to this shape (after `normalize`). Only `success` is required, so `{ success: true }` is a valid result.

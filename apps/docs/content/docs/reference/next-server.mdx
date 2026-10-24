@@ -64,6 +64,10 @@ export async function saveProduct(input: unknown) {
 
 The built-in messages are `"Validation failed"` and `"Unexpected error"`. Override them with `messages`.
 
+Errors thrown by the handler, by `normalize` or by `revalidate` never reject: they become a failed result. Errors thrown
+by **your own** `mapError`, `onError` or `messages` function are not caught, so a server action can still reject in
+that case. Keep those callbacks safe.
+
 ### Options
 
 See [`RunActionOptions`](#runactionoptions) for the full table.
@@ -99,8 +103,9 @@ import { runAction } from "@/lib/run-action";
 ```
 
 <Callout type="warn">
-  A `"use server"` file may only export async functions, so create the configured `runAction` in a regular module and
-  import it into your actions file.
+  A `"use server"` file may only export async functions, so the configured `runAction` (a plain function returned by
+  `createRunAction`) cannot be exported from one. Create it in a regular server-only module (no `"use server"`
+  directive; add `import "server-only"` if you like) and import it into your actions file.
 </Callout>
 
 The returned function has the same signature as `runAction`.

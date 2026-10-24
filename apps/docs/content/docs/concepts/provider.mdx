@@ -17,6 +17,9 @@ once, for the whole app:
   normalize={fromMyApi}
   mapError={fromAxiosError}
   isInterrupt={isMyRedirectError}
+  onError={(result) => {
+    if (result.statusCode === 401) navigate("/login");
+  }}
 >
   {children}
 </CrudProvider>
@@ -32,6 +35,7 @@ Every prop is optional. Without a provider at all, the hooks use the built-in de
 | `normalize` | Turns whatever an action returned into an `ActionResult`. | `ActionResult`-shaped values pass through; anything else becomes `{ success: true, data }`. |
 | `mapError` | Turns a thrown error into an `ActionResult`. | A failed result carrying the error's message. |
 | `isInterrupt` | Identifies thrown values the framework is already handling (for example a Next.js `redirect()`). | Nothing is an interrupt. |
+| `onError` | Called for every failed result, after `notify.error` and before the per-call `onError`. Never called for interrupts. | No-op. |
 
 ## Resolution order
 
@@ -47,6 +51,7 @@ Wherever a setting can be given in more than one place, the order is always:
 | Result mapping | `normalize` | `normalize` | `defaultNormalize` |
 | Error mapping | `mapError` | `mapError` | `defaultMapError` |
 | Interrupt detection | none | `isInterrupt` | `() => false` |
+| Failure hook | `onError` runs **after** the provider's; it adds to it, it does not replace it | `onError` | No-op |
 
 Per-call options live on both `useCrudForm` and `useCrudAction`:
 
@@ -61,6 +66,36 @@ useCrudAction({
 
 Per-call `notify` is resolved **per handler**: `notify: { success }` replaces only the success handler for that call,
 while errors still go to the provider's `error` handler.
+
+## Failure handling in one place
+
+A per-call `onError` is right for what one form or button does on failure. For a reaction every failure should have, use
+the provider's `onError`. It receives the failed `ActionResult` for every non-interrupt failure from `useCrudForm` and
+`useCrudAction` (a returned `{ success: false }` and a mapped thrown error alike), so a single check covers the whole
+app. A typical use is sending an expired session to a login page:
+
+```tsx
+<CrudProvider
+  notify={{
+    // The navigation below is the feedback for a 401, so no error toast for it.
+    error: (result) => {
+      if (result.statusCode !== 401) toast.error(result.message);
+    },
+  }}
+  onError={(result) => {
+    if (result.statusCode === 401) navigate("/login");
+  }}
+>
+  {children}
+</CrudProvider>
+```
+
+The order on failure is always: `notify.error`, the form or action state (`serverErrors`, field errors), the provider's
+`onError`, then the per-call `onError` (see [the failure path](/docs/concepts/submit-lifecycle#failure-path)). Both
+`onError`s run; neither replaces the other. Thrown values that `isInterrupt` recognises skip all of them.
+
+If you only need to stop the hooks from doing anything (a redirect the framework already performs), use `isInterrupt`
+instead. If you want to navigate after a **success**, use `redirectTo`.
 
 ## Nested providers
 

@@ -333,12 +333,59 @@ Run `npm run dev`. Create a product, then try to create another with the same na
 `fieldErrors`, `ApiError` carries them, `fromApiError` maps them, and the message appears under the **Name** field
 and in an error toast.
 
+## 6. Optional: send an expired session to the login page, once
+
+Some failures are not about one form: a `401` should end up on `/login` no matter which form or button produced it.
+Handle it where the other app-wide conventions live, with the provider's `onError`. It runs for **every** failed result
+from `useCrudForm` and `useCrudAction`, after `notify.error`, and never for interrupts. `fromApiError` already put the
+HTTP status in `statusCode`:
+
+```tsx title="src/crud-provider.tsx"
+import { useQueryClient } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+import { CrudProvider, type ActionResult } from "submitly";
+
+import { fromApiError } from "./lib/api";
+
+const isSessionExpired = (result: ActionResult) => result.statusCode === 401;
+
+export function AppCrudProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  return (
+    <CrudProvider
+      notify={{
+        success: (result) => toast.success(result.message),
+        // The page change is the feedback for an expired session, so no error toast for it.
+        error: (result) => {
+          if (!isSessionExpired(result)) toast.error(result.message);
+        },
+      }}
+      onError={(result) => {
+        if (isSessionExpired(result)) navigate("/login");
+      }}
+      onMutated={() => queryClient.invalidateQueries()}
+      navigate={(to) => navigate(to)}
+      mapError={fromApiError}
+    >
+      {children}
+    </CrudProvider>
+  );
+}
+```
+
+A per-call `onError` still runs after the provider's, so a form can add its own reaction on top. See
+[The submit lifecycle](/docs/concepts/submit-lifecycle#failure-path) for the exact order.
+
 ## How the pieces fit
 
 | Step | What happens |
 | --- | --- |
 | Submit | The schema validates in the browser. Invalid input never reaches the action. |
-| Action throws `ApiError` | `mapError` (`fromApiError`) converts it to a failed `ActionResult`. `notify.error` fires; `fieldErrors` land on the fields. |
+| Action throws `ApiError` | `mapError` (`fromApiError`) converts it to a failed `ActionResult`. `notify.error` fires; `fieldErrors` land on the fields; then the provider's `onError` (if any), then your per-call `onError`. |
 | Action succeeds | `notify.success`, then `onMutated` (`invalidateQueries`), then the form resets, then your `onSuccess`, then `redirectTo`. |
 | Redirect | `redirectTo: "/products/1"` on a hook calls the provider's `navigate`, which is React Router's `useNavigate()`. |
 

@@ -49,12 +49,14 @@ a Next.js Server Component tree (for example, a layout importing `NextCrudProvid
 
 | Import | Contents | Runs on |
 | --- | --- | --- |
-| `submitly` | `CrudProvider`, `useCrudForm`, `useCrudAction`, `useControllableDialog`, the dialog lock helpers, the `ActionResult` contract and its helpers | Client |
+| `submitly` | `CrudProvider`, `useCrudForm`, `useCrudAction`, `useControllableDialog`, the dialog lock helpers. Also re-exports everything in `submitly/core` | Client |
+| `submitly/core` | The `ActionResult` contract and its pure helpers (`isActionResult`, `defaultNormalize`, `defaultMapError`, `issuesToErrors`, `getDotPath`, `validate`) and all shared types. No `"use client"`, no React | Client or server |
 | `submitly/next` | `NextCrudProvider`, `isNextInterrupt` | Client |
 | `submitly/next/server` | `runAction`, `createRunAction` | Server only |
 
 `submitly/next/server` imports `server-only`, so bundling it into client code fails the build instead of leaking
-server code. See the [API reference](/docs/reference/submitly) for every export.
+server code. Import the pure helpers from `submitly/core` in Server Components and server actions: the main `submitly`
+entry is a client module, so its functions cannot be called there. See the [API reference](/docs/reference/submitly) for every export.
 
 ## Next steps
 

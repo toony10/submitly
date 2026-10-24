@@ -12,7 +12,7 @@ so you adapt the shape once instead of reshaping every action. Use it for succes
 Suppose the API never throws, and answers every request with a discriminated envelope:
 
 ```ts title="src/lib/normalize-envelope.ts"
-import { defaultNormalize, type ActionResult } from "submitly";
+import { defaultNormalize, type ActionResult } from "submitly/core";
 
 type Envelope =
   | { ok: true; data: unknown; notice?: string }
@@ -69,7 +69,7 @@ Their action, our hooks. A safe action resolves to an object with `data`, `serve
 submitly that shape:
 
 ```ts title="lib/normalize-safe-action.ts"
-import type { ActionResult } from "submitly";
+import type { ActionResult } from "submitly/core";
 
 type SafeActionResult = {
   data?: unknown;

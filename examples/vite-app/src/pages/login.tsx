@@ -8,7 +8,7 @@ export function LoginPage() {
         <h1>Session expired</h1>
         <p>
           The API answered <code>401</code>. <code>mapError</code> turned it into a failed result and the provider's{" "}
-          <code>notify.error</code> sent you here: no error toast, no error panel, just the navigation.
+          <code>onError</code> sent you here: no error toast, no error panel, just the navigation.
         </p>
         <Link className="btn btn-primary" to="/">
           Back to the playground

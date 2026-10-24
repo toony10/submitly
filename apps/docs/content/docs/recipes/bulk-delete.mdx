@@ -123,7 +123,7 @@ dialog locks while the request runs, so the user cannot dismiss it halfway.
 
 ## Notes
 
-- `execute` never rejects, so the click handler needs no `try` / `catch`.
+- A failing request never makes `execute` reject, so the click handler needs no `try` / `catch` for it (only errors thrown by your own callbacks propagate).
 - The selection is cleared in `onSuccess`, which runs only for a successful result. On failure the rows stay selected,
   and the errors are shown.
 - If the table is paginated, keep the selection in a URL parameter or a store instead of component state.

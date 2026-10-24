@@ -45,7 +45,7 @@ Every app that submits forms with react-hook-form ends up writing the same 40 li
 | --- | --- | --- |
 | Schema resolver | Pick and wire a resolver per schema library | Any Standard Schema, no resolver to choose |
 | Submit handler | `handleSubmit` + `try` / `catch` / `finally` in every form | `useCrudForm({ schema, action })` |
-| Thrown errors (network, 500) | Easy to forget; an unhandled rejection or a stuck spinner | `mapError`, set once; the returned promise never rejects |
+| Thrown errors (network, 500) | Easy to forget; an unhandled rejection or a stuck spinner | `mapError`, set once; the action cannot make the returned promise reject |
 | Server field errors | Loop over the response and call `setError` yourself | `fieldErrors` keyed by dotted path are applied for you, first field focused |
 | Form-level server errors | Your own `useState` | `serverErrors` |
 | Double submit | A ref or `disabled` flag, per form | Built in for forms and for `useCrudAction` |

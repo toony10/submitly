@@ -8,7 +8,9 @@ import { useCrudForm, useCrudAction, CrudProvider /* ... */ } from "submitly";
 ```
 
 The main entry point has no dependency on Next.js. It is a client module (`"use client"`): it can be imported from a
-Server Component tree to render its components, but its functions can only be **called** from client code.
+Server Component tree to render its components, but its functions can only be **called** from client code. The pure
+helpers and types it re-exports (`defaultNormalize`, `issuesToErrors`, `ActionResult`, ...) live in
+[`submitly/core`](/docs/reference/core), which has no `"use client"` directive: import them from there in server code.
 
 | Export | Kind |
 | --- | --- |
@@ -17,9 +19,9 @@ Server Component tree to render its components, but its functions can only be **
 | [`useCrudAction`](#usecrudaction) | Hook |
 | [`useControllableDialog`](#usecontrollabledialog) | Hook |
 | [`useDialogLockScope`](#usedialoglockscope), [`DialogLockProvider`](#dialoglockprovider), [`useDialogLock`](#usedialoglock), [`useDialogLockHandle`](#usedialoglockhandle) | Dialog lock |
-| [`isActionResult`](#isactionresult), [`defaultNormalize`](#defaultnormalize), [`defaultMapError`](#defaultmaperror) | Result helpers |
-| [`getDotPath`](#getdotpath), [`issuesToErrors`](#issuestoerrors), [`validate`](#validate) | Schema helpers |
-| [`ActionResult`](#actionresult), [`FieldErrorMap`](#fielderrormap), [`Normalize`](#normalize-and-maperror), [`MapError`](#normalize-and-maperror), [`NotifyHandlers`](#notifyhandlers), [`InferResultData`](#inferresultdata), [`MutationOptions`](#mutationoptions), [`CrudConfig`](#crudconfig), [`CrudProviderProps`](#crudproviderprops), [`UseCrudFormOptions`](#usecrudform), [`UseCrudFormReturn`](#usecrudform), [`UseCrudActionOptions`](#usecrudaction), [`UseCrudActionReturn`](#usecrudaction), [`UseControllableDialogOptions`](#usecontrollabledialog), [`UseControllableDialogReturn`](#usecontrollabledialog), [`DialogLockScope`](#dialoglockscope) | Types |
+| [`isActionResult`](/docs/reference/core#isactionresult), [`defaultNormalize`](/docs/reference/core#defaultnormalize), [`defaultMapError`](/docs/reference/core#defaultmaperror), [`getDotPath`](/docs/reference/core#getdotpath), [`issuesToErrors`](/docs/reference/core#issuestoerrors), [`validate`](/docs/reference/core#validate) | Helpers, re-exported from [`submitly/core`](/docs/reference/core) |
+| [`ActionResult`](/docs/reference/core#actionresult), [`FieldErrorMap`](/docs/reference/core#fielderrormap), [`Normalize`](/docs/reference/core#normalize-and-maperror), [`MapError`](/docs/reference/core#normalize-and-maperror), [`NotifyHandlers`](/docs/reference/core#notifyhandlers), [`InferResultData`](/docs/reference/core#inferresultdata) | Types, re-exported from [`submitly/core`](/docs/reference/core) |
+| [`MutationOptions`](#mutationoptions), [`CrudConfig`](#crudconfig), [`CrudProviderProps`](#crudproviderprops), [`UseCrudFormOptions`](#usecrudform), [`UseCrudFormReturn`](#usecrudform), [`UseCrudActionOptions`](#usecrudaction), [`UseCrudActionReturn`](#usecrudaction), [`UseControllableDialogOptions`](#usecontrollabledialog), [`UseControllableDialogReturn`](#usecontrollabledialog), [`DialogLockScope`](#dialoglockscope) | Types |
 
 ## Hooks
 
@@ -63,7 +65,7 @@ receives), and `TResult` the action's resolved type, from which `TData` is infer
 | Property | Type | Description |
 | --- | --- | --- |
 | `form` | `UseFormReturn<TFieldValues, unknown, TOutput>` | The regular react-hook-form object: `register`, `control`, `formState`, `setValue`, `reset`, ... |
-| `onSubmit` | `(event?: BaseSyntheticEvent) => Promise<void>` | Pass it to `<form onSubmit>`. Never rejects because of the action (see the boundaries in [the lifecycle](/docs/concepts/submit-lifecycle#guarantees-and-boundaries)); ignores submits while one is in flight. |
+| `onSubmit` | `(event?: BaseSyntheticEvent) => Promise<void>` | Pass it to `<form onSubmit>`. The action's own errors and failures never reject it (they become `serverErrors` and field errors), but an error thrown by **your own callbacks** propagates (see [what is guarded](/docs/concepts/submit-lifecycle#guarantees-and-boundaries)). Ignores submits while one is in flight. |
 | `serverErrors` | `string[]` | Form-level errors from the last failed result: `result.errors`, plus `fieldErrors` entries with no usable key. Cleared at the start of the next submit. |
 | `clearServerErrors` | `() => void` | Empties `serverErrors`. |
 | `isSubmitting` | `boolean` | react-hook-form's `formState.isSubmitting`, true while the submit (validation, action and callbacks) is running. |
@@ -103,7 +105,7 @@ The inherited options (`onSuccess`, `onError`, `redirectTo`, `notify`, `onMutate
 
 | Property | Type | Description |
 | --- | --- | --- |
-| `execute` | `(input: TInput) => Promise<ActionResult<TData>>` | Runs the action. Never rejects because of the action: thrown errors go through `mapError`, and an interrupt resolves with a bare `{ success: false }` and no side effects. While a call is in flight, further calls return the same promise. Stable identity across renders. |
+| `execute` | `(input: TInput) => Promise<ActionResult<TData>>` | Runs the action. The action's own errors and failures never reject: thrown errors go through `mapError`, and an interrupt resolves with a bare `{ success: false }` and no side effects. An error thrown by **your own callbacks** (`onSuccess`, `onError`, `notify` handlers, `onMutated`, `navigate`, the provider's `onError`) is not caught and rejects the promise (see [what is guarded](/docs/concepts/submit-lifecycle#guarantees-and-boundaries)). While a call is in flight, further calls return the same promise. Stable identity across renders. |
 | `isPending` | `boolean` | True while a call is in flight. |
 | `serverErrors` | `string[]` | `result.errors` of the last failed call. Cleared when the next call starts. |
 | `clearServerErrors` | `() => void` | Empties `serverErrors`. |
@@ -167,6 +169,7 @@ Nested providers override their parent prop by prop, and `notify` merges per key
 | `normalize` | `Normalize` | `defaultNormalize` | Turns whatever an action returned into an `ActionResult`. |
 | `mapError` | `MapError` | `defaultMapError` | Turns a thrown error into an `ActionResult`. |
 | `isInterrupt` | `(error: unknown) => boolean` | `() => false` | Identifies thrown values the framework is already handling (such as a Next.js `redirect()`). The hooks then stop silently. |
+| `onError` | `(result: ActionResult) => void` | no-op | Called for **every** failed result from `useCrudForm` and `useCrudAction` (a returned `{ success: false }` or a mapped thrown error), after `notify.error` and before the per-call `onError`. Never called for interrupts. For cross-cutting failure handling such as redirecting to a login page on a 401. Overrides a parent provider's `onError`. |
 
 ### `useCrudConfig`
 
@@ -184,7 +187,8 @@ const defaultCrudConfig: CrudConfig;
 ```
 
 The configuration used when there is no provider: no-op `notify` and `onMutated`, `navigate` via
-`window.location.assign` (guarded for the server), `defaultNormalize`, `defaultMapError`, and no interrupts.
+`window.location.assign` (guarded for the server), `defaultNormalize`, `defaultMapError`, no interrupts, and a no-op
+`onError`.
 
 ### `CrudConfig`
 
@@ -196,6 +200,7 @@ type CrudConfig = {
   normalize: Normalize;
   mapError: MapError;
   isInterrupt: (error: unknown) => boolean;
+  onError: (result: ActionResult) => void;
 };
 ```
 
@@ -283,7 +288,7 @@ The options `useCrudForm` and `useCrudAction` share. Each overrides the provider
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `onSuccess` | `(result: ActionResult<TData>) => void` | `undefined` | Called after a successful result, after `notify`, `onMutated` and (for forms) the reset. |
-| `onError` | `(result: ActionResult<TData>) => void` | `undefined` | Called after a failed result. Not called for interrupts. |
+| `onError` | `(result: ActionResult<TData>) => void` | `undefined` | Called after a failed result, **after** `notify.error` and the provider's `onError`. Not called for interrupts. It adds to the provider's `onError`; it does not replace it. If it throws, the error propagates out of `onSubmit` / `execute`. |
 | `redirectTo` | `string \| ((result) => string \| null \| undefined)` | `undefined` | Navigate after success through the provider's `navigate`. A function receives the result and may return `null` or `undefined` to skip the redirect. |
 | `notify` | `false \| NotifyHandlers` | the provider's `notify` | `false` silences notifications for this call. An object overrides the `success` and/or `error` handler for this call. |
 | `onMutated` | `false \| (() => void)` | the provider's `onMutated` | `false` skips it (for example, the server action already revalidated). A function replaces the provider's. |
@@ -291,131 +296,16 @@ The options `useCrudForm` and `useCrudAction` share. Each overrides the provider
 | `mapError` | `MapError` | the provider's `mapError` | Overrides error mapping for this call. |
 | `lockDialog` | `boolean` | `true` | Lock the enclosing dialog while pending. |
 
-### `NotifyHandlers`
+## Re-exported from `submitly/core`
 
-```ts
-type NotifyHandlers = {
-  success?: (result: ActionResult) => void;
-  error?: (result: ActionResult) => void;
-};
-```
+The root entry re-exports everything in [`submitly/core`](/docs/reference/core) for backwards compatibility, so these
+imports are equivalent in client code. They are documented on the [`submitly/core`](/docs/reference/core) page:
 
-Called with the whole result, and only when `result.message` is set.
+| Export | Kind |
+| --- | --- |
+| [`isActionResult`](/docs/reference/core#isactionresult), [`defaultNormalize`](/docs/reference/core#defaultnormalize), [`defaultMapError`](/docs/reference/core#defaultmaperror) | Result helpers |
+| [`getDotPath`](/docs/reference/core#getdotpath), [`issuesToErrors`](/docs/reference/core#issuestoerrors), [`validate`](/docs/reference/core#validate) | Schema helpers |
+| [`ActionResult`](/docs/reference/core#actionresult), [`FieldErrorMap`](/docs/reference/core#fielderrormap), [`Normalize`](/docs/reference/core#normalize-and-maperror), [`MapError`](/docs/reference/core#normalize-and-maperror), [`NotifyHandlers`](/docs/reference/core#notifyhandlers), [`InferResultData`](/docs/reference/core#inferresultdata) | Types |
 
-### `Normalize` and `MapError`
-
-```ts
-type Normalize = (raw: unknown) => ActionResult;
-type MapError = (error: unknown) => ActionResult;
-```
-
-`Normalize` turns whatever an action returned into an `ActionResult`. `MapError` turns a thrown error (network failure,
-HTTP error, ...) into one.
-
-### `InferResultData`
-
-```ts
-type InferResultData<TResult> = [TResult] extends [ActionResult<infer TData>] ? TData : unknown;
-```
-
-Extracts `TData` from an action's return type. Actions that do not return an `ActionResult` (for example a fetch wrapper
-returning the entity) give `unknown`, because a provider-level `normalize` decides what `data` ends up being.
-
-## Result contract
-
-### `ActionResult`
-
-```ts
-type ActionResult<TData = unknown> = {
-  success: boolean;
-  message?: string;
-  data?: TData;
-  errors?: string[];
-  fieldErrors?: FieldErrorMap;
-  statusCode?: number;
-};
-```
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `success` | `boolean` | Required. Chooses the success or failure path. |
-| `message` | `string` | Passed to `notify.success` / `notify.error` when present. |
-| `data` | `TData` | The payload, passed to callbacks. |
-| `errors` | `string[]` | Form-level errors, exposed as `serverErrors`. |
-| `fieldErrors` | `FieldErrorMap` | Field errors keyed by dotted path, applied with `form.setError`. |
-| `statusCode` | `number` | Optional and informational. |
-
-See [The ActionResult contract](/docs/concepts/action-result).
-
-### `FieldErrorMap`
-
-```ts
-type FieldErrorMap = Record<string, string[]>;
-```
-
-Field errors keyed by dotted path, matching react-hook-form field names (`items.0.name`).
-
-### `isActionResult`
-
-```ts
-function isActionResult(value: unknown): value is ActionResult;
-```
-
-True for a non-null object whose `success` property is a boolean. This is the check `defaultNormalize` uses to decide
-whether a value is already an `ActionResult`.
-
-### `defaultNormalize`
-
-```ts
-function defaultNormalize(raw: unknown): ActionResult;
-```
-
-The built-in `normalize`. `ActionResult`-shaped values pass through; `undefined` becomes `{ success: true }`; anything
-else becomes `{ success: true, data: raw }`. Call it from your own `normalize` as the fallback for values you do not
-recognize.
-
-### `defaultMapError`
-
-```ts
-function defaultMapError(error: unknown): ActionResult;
-```
-
-The built-in `mapError`. An `Error` (or a thrown string) becomes
-`{ success: false, message, errors: [message] }`, so a thrown error is never silent. Any other value becomes
-`{ success: false }`. Call it from your own `mapError` as the fallback for errors you do not recognize.
-
-## Schema helpers
-
-### `validate`
-
-```ts
-function validate<TSchema extends StandardSchemaV1>(
-  schema: TSchema,
-  input: unknown,
-): Promise<StandardSchemaV1.Result<StandardSchemaV1.InferOutput<TSchema>>>;
-```
-
-Runs any Standard Schema, sync or async, and returns its result: `{ value }` on success, `{ issues }` on failure.
-`runAction` uses the same call. Handy in tests, for example to check a schema's [idempotency](/docs/concepts/schema-idempotency).
-
-### `getDotPath`
-
-```ts
-function getDotPath(issue: StandardSchemaV1.Issue): string | undefined;
-```
-
-The dotted path of a Standard Schema issue (`items.0.name`), the format react-hook-form uses for field names. Returns
-`undefined` for root-level issues (no path) and for paths containing a symbol key.
-
-### `issuesToErrors`
-
-```ts
-function issuesToErrors(issues: readonly StandardSchemaV1.Issue[]): {
-  fieldErrors: FieldErrorMap;
-  errors: string[];
-};
-```
-
-Splits schema issues into `fieldErrors` (keyed by dotted path, several messages per field when there are several
-issues) and form-level `errors` (issues without a usable path). It is what `runAction` uses to build a validation
-failure.
+In server code (Server Components, server actions, route handlers) import them from `submitly/core`: functions imported
+from the client `submitly` entry cannot be called on the server.

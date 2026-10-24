@@ -1,4 +1,4 @@
 {
   "title": "API reference",
-  "pages": ["submitly", "next", "next-server"]
+  "pages": ["submitly", "core", "next", "next-server"]
 }

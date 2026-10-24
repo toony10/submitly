@@ -1,10 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
-import { CrudProvider } from "submitly";
+import { CrudProvider, type ActionResult } from "submitly";
 
 import { mapError, normalize } from "./lib/crud-adapter";
 import { useFeedback } from "./ui/feedback";
+
+const isSessionExpired = (result: ActionResult) => result.statusCode === 401;
 
 /**
  * The whole integration: submitly knows nothing about the toast, the query
@@ -34,15 +36,18 @@ export function Providers({ children }: { children: ReactNode }) {
         error: (result) => {
           log("notify.error", `${result.statusCode ?? ""} ${result.message ?? ""}`.trim(), "error");
 
-          // Expired session: every failed action funnels through here, so one
-          // check covers the whole app. Skip the toast and go to the login page.
-          if (result.statusCode === 401) {
-            navigate("/login");
-            return;
+          // The page change below is the feedback for an expired session.
+          if (!isSessionExpired(result)) {
+            toast("error", result.message ?? "Something went wrong");
           }
-
-          toast("error", result.message ?? "Something went wrong");
         },
+      }}
+      // Runs for every failed action in the app, after `notify.error`: one
+      // place for cross-cutting failure handling, no per-call `onError`.
+      onError={(result) => {
+        if (isSessionExpired(result)) {
+          navigate("/login");
+        }
       }}
       onMutated={() => {
         log("onMutated", "queryClient.invalidateQueries()");

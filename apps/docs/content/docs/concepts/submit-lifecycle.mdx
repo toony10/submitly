@@ -30,8 +30,9 @@ sets the field errors, **the action is not called**, nothing is notified, and th
 ### Call the action
 
 `serverErrors` is cleared. The action receives the schema's **parsed output** (after transforms). The return value goes
-through `normalize`. A thrown error goes through `mapError`, unless `isInterrupt` recognises it. Either way the call
-**never rejects**: the outcome is always an `ActionResult`.
+through `normalize`. A thrown error goes through `mapError`, unless `isInterrupt` recognises it. Either way the action
+cannot make the call reject: the outcome is always an `ActionResult`. (Errors thrown by **your own callbacks** later in
+the pipeline do propagate; see [Guarantees and boundaries](#guarantees-and-boundaries).)
 
 </Step>
 <Step>
@@ -62,14 +63,15 @@ Then the path forks on `result.success`.
 | 1 | `notify.error(result)` | Only when `result.message` is set and `notify` is not `false`. |
 | 2 | `serverErrors` is set | `result.errors`, plus any `fieldErrors` entries whose key is empty. |
 | 3 | Field errors applied | One `form.setError(name, { type: "server", ... })` per entry in `result.fieldErrors`; the first one is focused. |
-| 4 | `onError(result)` | Your callback. |
+| 4 | Provider `onError(result)` | The provider's failure hook. Runs for every non-interrupt failure. |
+| 5 | `onError(result)` | Your per-call callback. Runs after the provider's; it does not replace it. |
 
 There is no `onMutated`, reset or redirect on failure: the form keeps the user's input so they can fix it.
 
 ### Interrupts
 
 If the action throws a value for which `isInterrupt` returns `true`, the pipeline stops after the lock is released. No
-notify, no `serverErrors`, no `onError`, no reset, no redirect. See [Interrupts](/docs/concepts/provider#interrupts).
+notify, no `serverErrors`, no provider or per-call `onError`, no reset, no redirect. See [Interrupts](/docs/concepts/provider#interrupts).
 
 ## `useCrudAction`: execute
 
@@ -78,12 +80,13 @@ notify, no `serverErrors`, no `onError`, no reset, no redirect. See [Interrupts]
 1. **Guard.** If a call is in flight, return **the same promise** (a double click fires the action once, and both
    callers get the same result).
 2. `serverErrors` is cleared, `isPending` becomes `true`, and the dialog is locked (unless `lockDialog: false`).
-3. Call the action, with `normalize` / `mapError` / `isInterrupt` as above. Never rejects.
+3. Call the action, with `normalize` / `mapError` / `isInterrupt` as above. The action cannot make `execute` reject.
 4. Release the dialog lock.
 5. **Interrupt:** resolve with `{ success: false }` and stop.
 6. `notify` (success or error handler), when the result has a `message`.
 7. **Success:** `onMutated()`, then `onSuccess(result)`, then the redirect.
-   **Failure:** `serverErrors` becomes `result.errors ?? []`, then `onError(result)`.
+   **Failure:** `serverErrors` becomes `result.errors ?? []`, then the provider's `onError(result)`, then your
+   per-call `onError(result)`.
 8. `isPending` returns to `false`; `execute` resolves with the `ActionResult`.
 
 `useCrudAction` never touches `fieldErrors`: it has no form to apply them to.
@@ -98,10 +101,21 @@ notify, no `serverErrors`, no `onError`, no reset, no redirect. See [Interrupts]
 | Latest options | Callbacks and options are read when they run, so a stale closure never fires. | Same. |
 | Errors from `action` or `normalize` | Caught, mapped by `mapError`. | Same. |
 
+### What "never rejects" means
+
+The guarantee is about **the action**, and it is precise:
+
+- **Never rejects:** a thrown error from the action (or from `normalize`), a returned `{ success: false }`, a network
+  failure, a 500. All of them become an `ActionResult` and take the failure path above. `onSubmit` / `execute` resolve.
+- **Does propagate:** an error thrown by **your own callbacks**: `onSuccess`, a per-call `onError`, a `notify` handler,
+  `onMutated`, `navigate` (or `redirectTo` when it is a function), and the provider's `onError`. submitly does not
+  swallow them. `onSubmit` / `execute` reject with that error, the remaining steps of the pipeline are skipped, and the
+  pending state and dialog lock are still released.
+
 <Callout type="warn">
-  Only the action (and `normalize`) is guarded. Errors thrown by **your own callbacks** (`onSuccess`, `onError`, a
-  `notify` handler, `onMutated`, `navigate`) are not caught: they propagate out of `onSubmit` / `execute` like any other
-  exception. Keep those callbacks safe, or catch inside them.
+  Keep your callbacks safe, or catch inside them. A `notify` handler that throws (a toast library that is not mounted,
+  say) turns a handled failure into a rejected `onSubmit`, which React reports as an unhandled error from the event
+  handler.
 </Callout>
 
 ## Typical sequence

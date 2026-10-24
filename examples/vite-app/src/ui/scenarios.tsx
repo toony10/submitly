@@ -75,7 +75,7 @@ export function Scenarios({ latencyMs }: { latencyMs: number | undefined }) {
       />
       <ScenarioButton
         title="Session expired"
-        description="The API answers 401. The provider's notify.error sends you to /login instead of toasting."
+        description="The API answers 401. The provider's onError sends you to /login instead of toasting."
         action={api.expired}
       />
       <ScenarioButton title="Reset data" description="Restore the sample products." action={api.reset} />

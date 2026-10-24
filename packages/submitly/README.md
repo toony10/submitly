@@ -16,7 +16,8 @@ Peer dependencies: `react >=18.2`, `react-hook-form ^7.55`, and `next >=15` (opt
 
 | Import | Contents |
 | --- | --- |
-| `submitly` | `CrudProvider`, `useCrudForm`, `useCrudAction`, `useControllableDialog`, dialog lock helpers (`useDialogLockScope`, `DialogLockProvider`, `useDialogLock`, `useDialogLockHandle`), `ActionResult` and related types |
+| `submitly` | `CrudProvider`, `useCrudForm`, `useCrudAction`, `useControllableDialog`, dialog lock helpers (`useDialogLockScope`, `DialogLockProvider`, `useDialogLock`, `useDialogLockHandle`). A client module (`"use client"`). Also re-exports everything in `submitly/core` |
+| `submitly/core` | `isActionResult`, `defaultNormalize`, `defaultMapError`, `issuesToErrors`, `getDotPath`, `validate`, and the types (`ActionResult`, `FieldErrorMap`, `Normalize`, `MapError`, `NotifyHandlers`, `InferResultData`). No `"use client"`, no React: import from Server Components, server actions and route handlers |
 | `submitly/next` | `NextCrudProvider` (`router.refresh` / `router.push` preset, server-action redirects treated as interrupts), `isNextInterrupt` |
 | `submitly/next/server` | `runAction`, `createRunAction` (server only) |
 
@@ -85,9 +86,9 @@ export function ProductForm() {
 What happens on submit:
 
 1. The schema validates the values (client side, through a built-in react-hook-form resolver for Standard Schema).
-2. `action` receives the schema's parsed output. Its return value goes through `normalize`; a thrown error goes through `mapError`. The returned promise never rejects.
+2. `action` receives the schema's parsed output. Its return value goes through `normalize`; a thrown error goes through `mapError`. The action's own errors and failures never reject the returned promise (see [What "never rejects" means](#what-never-rejects-means)).
 3. On success: `notify.success` (when the result has a `message`), `onMutated`, form reset to `defaultValues` (`resetOnSuccess: false` to skip), `onSuccess`, then `redirectTo` via the provider's `navigate`.
-4. On failure: `notify.error`, `serverErrors` is filled with `result.errors`, each `result.fieldErrors` entry is applied with `form.setError` (focusing the first), and `onError` runs.
+4. On failure: `notify.error`, `serverErrors` is filled with `result.errors`, each `result.fieldErrors` entry is applied with `form.setError` (focusing the first), then the provider's `onError`, then the per-call `onError`.
 5. Further submits are ignored while one is in flight.
 
 Per-call options override the provider: `notify` (`false` or per-handler overrides), `onMutated` (`false` to skip), `normalize`, `mapError`, `lockDialog`.
@@ -124,7 +125,7 @@ export function DeleteButton({ id }: { id: number }) {
 }
 ```
 
-`execute` has a stable identity, never rejects, and returns the same promise while a call is in flight (double clicks fire once).
+`execute` has a stable identity and returns the same promise while a call is in flight (double clicks fire once). The action's own errors and failures never reject it; errors thrown by your own callbacks do (see [What "never rejects" means](#what-never-rejects-means)).
 
 ## `CrudProvider`
 
@@ -163,8 +164,40 @@ export function Providers({ children }: { children: React.ReactNode }) {
 | `normalize` | Turns whatever an action returned into an `ActionResult`. Default: `ActionResult`-shaped values pass through, anything else becomes `{ success: true, data }`. |
 | `mapError` | Turns a thrown error into an `ActionResult`. Default: a failed result carrying the error message. |
 | `isInterrupt` | Identifies thrown values the framework is already handling (e.g. a Next.js `redirect()`); the hooks then stop silently. |
+| `onError` | Called with the failed `ActionResult` for every non-interrupt failure from `useCrudForm` / `useCrudAction`, after `notify.error` and before the per-call `onError`. Default: no-op. Overrides a parent provider's `onError`. |
 
-Resolution order everywhere: per-call option, then provider, then built-in default. Nested providers override their parent prop by prop. Use `normalize` and `mapError` to adapt an API with its own response shape (axios errors, `{ ok, error }` envelopes, ...) without reshaping each action.
+Resolution order everywhere: per-call option, then provider, then built-in default. The one exception is failure callbacks, which add up: the provider's `onError` runs first, then the per-call `onError`. Nested providers override their parent prop by prop. Use `normalize` and `mapError` to adapt an API with its own response shape (axios errors, `{ ok, error }` envelopes, ...) without reshaping each action.
+
+### Failure handling in one place
+
+Use the provider's `onError` for a reaction every failure should have, such as sending an expired session to a login page, instead of repeating a per-call `onError` on every form and button. It runs for returned `{ success: false }` results and mapped thrown errors alike, after `notify.error`, and never for interrupts:
+
+```tsx
+<CrudProvider
+  notify={{
+    // The navigation below is the feedback for a 401, so no error toast for it.
+    error: (result) => {
+      if (result.statusCode !== 401) toast.error(result.message);
+    },
+  }}
+  onError={(result) => {
+    if (result.statusCode === 401) router.push("/login");
+  }}
+>
+  {children}
+</CrudProvider>
+```
+
+Order on failure: `notify.error`, `serverErrors` / field errors, provider `onError`, per-call `onError`. Both `onError`s run; neither replaces the other.
+
+### What "never rejects" means
+
+The guarantee is about the action:
+
+- **Never rejects:** a thrown error from the action (or `normalize`), a returned `{ success: false }`, a network failure, a 500. They all become an `ActionResult` and take the failure path, and `onSubmit` / `execute` resolve.
+- **Does propagate:** an error thrown by your own callbacks: `onSuccess`, `onError` (per call or provider), `notify` handlers, `onMutated`, `navigate`, or a `redirectTo` function. submitly does not swallow them: `onSubmit` / `execute` reject with that error and the rest of the pipeline is skipped. The pending state and the dialog lock are still released.
+
+So keep those callbacks safe, or catch inside them.
 
 ## Using with any dialog library
 
@@ -266,7 +299,8 @@ export async function saveProduct(input: unknown) {
 - Validation failures resolve to `{ success: false, statusCode: 422, message, errors, fieldErrors }`, with `fieldErrors` keyed by dotted path (`items.0.name`), so the client applies them with `form.setError`.
 - Unexpected handler errors resolve to `{ success: false, statusCode: 500, message, errors }`. Customize with `mapError`, log with `onError`.
 - Next.js control-flow errors are re-thrown untouched.
-- `messages` overrides the `validation` / `unexpected` strings. Pass an object or a function resolving them per request (e.g. from your i18n). `createRunAction({ messages, mapError, onError })` creates a `runAction` with app-wide defaults.
+- `messages` overrides the `validation` / `unexpected` strings. Pass an object or a function resolving them per request (e.g. from your i18n). `createRunAction({ messages, mapError, onError })` creates a `runAction` with app-wide defaults. A `"use server"` file may only export async functions, so create that configured `runAction` in a regular server-only module (no `"use server"`; `import "server-only"` is fine) and import it into your actions file.
+- Errors thrown by the handler (or `normalize` / `revalidate`) never reject: they become a failed result. Errors thrown by your own `mapError`, `onError` or `messages` function are not caught.
 - `revalidate` takes `paths` and `tags` (or a function of the parsed data and result) and runs only for successful results.
 
 Then use the action directly from the client hooks: `useCrudForm({ schema, action: saveProduct, ... })`.
@@ -274,6 +308,12 @@ Then use the action directly from the client hooks: `useCrudForm({ schema, actio
 > **Share schemas carefully.** `useCrudForm` passes the schema's *parsed output* to the action, and `runAction` validates it again with the same schema. The schema must therefore accept its own output. For example, a field that turns `""` into `undefined` needs `.optional()` before the transform, and a `z.coerce.number()` field already accepts the number it produces.
 
 ## The `ActionResult` contract
+
+The type and its helpers live in `submitly/core` (also re-exported by `submitly`). Server code must import them from `submitly/core`: functions imported from the client `submitly` entry cannot be called in a Server Component or server action.
+
+```ts
+import { defaultMapError, type ActionResult } from "submitly/core";
+```
 
 Every action resolves to this shape (after `normalize`). Only `success` is required, so `{ success: true }` is a valid result.
 

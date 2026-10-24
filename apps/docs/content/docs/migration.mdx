@@ -11,7 +11,7 @@ by piece, so a dashboard (or any app that copied the kit) can switch without rew
 | Old (`@/lib/forms`) | New | Notes |
 | --- | --- | --- |
 | `useCrudForm` | `useCrudForm` from `submitly` | Same shape (`schema`, `defaultValues`, `action`, `onSuccess`, `resetOnSuccess`). The router and toast calls moved to the provider. |
-| `useConfirmAction` | `useCrudAction` | Same `execute`, `isPending`, `serverErrors`, `clearServerErrors`. `execute` is now stable, never rejects, and ignores double calls. |
+| `useConfirmAction` | `useCrudAction` | Same `execute`, `isPending`, `serverErrors`, `clearServerErrors`. `execute` is now stable, does not reject because of the action (errors thrown by your own callbacks still propagate), and ignores double calls. |
 | `useControllableDialog(open, onOpenChange)` | `useControllableDialog({ open, onOpenChange, locked })` | Options object. Adds `openKey`, `isControlled` and the lock. |
 | `FormDialog` | Your own thin component over `useControllableDialog` | The package ships no UI. See [Dialogs](/docs/recipes/dialogs). |
 | `ConfirmDialog` | Your own component over `useCrudAction` | See [Add, edit and delete](/docs/recipes/add-edit-delete#delete-with-a-confirmation-that-closes-on-success-only). |

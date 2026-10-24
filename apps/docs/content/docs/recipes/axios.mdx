@@ -13,7 +13,7 @@ This one assumes the API answers errors with a JSON body like
 
 ```ts title="src/lib/axios-error.ts"
 import axios from "axios";
-import { defaultMapError, type ActionResult } from "submitly";
+import { defaultMapError, type ActionResult } from "submitly/core";
 
 type ErrorBody = {
   message?: string;

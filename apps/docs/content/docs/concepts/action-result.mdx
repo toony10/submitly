@@ -87,7 +87,7 @@ Adapt other response shapes with `normalize` and other error types with `mapErro
 
 ## Related types and helpers
 
-`submitly` exports the pieces that implement this contract, so you can reuse them in your own adapters:
+`submitly/core` exports the pieces that implement this contract, so you can reuse them in your own adapters (the main `submitly` entry re-exports them too):
 
 | Export | Purpose |
 | --- | --- |
@@ -98,10 +98,15 @@ Adapt other response shapes with `normalize` and other error types with `mapErro
 | `defaultNormalize`, `defaultMapError` | The built-in behaviours, handy as a fallback inside your own adapter. |
 | `InferResultData<TResult>` | Extracts `TData` from an action's return type. |
 
-See the [API reference](/docs/reference/submitly#actionresult) for details.
+See the [`submitly/core` reference](/docs/reference/core#actionresult) for details.
 
-<Callout type="warn">
-  The `submitly` entry point is a client module. In a Next.js app, call these helpers from client code only. Server
-  code (server actions, route handlers) can import types from `submitly`, but calling a function such as
-  `defaultMapError` there fails with "Attempted to call ... from the server".
+<Callout>
+  The main `submitly` entry point is a client module, so a function imported from it cannot be **called** from a Server
+  Component, server action or route handler (it fails with "Attempted to call ... from the server"). In server code,
+  import the same helpers and types from [`submitly/core`](/docs/reference/core), which has no `"use client"`
+  directive and imports no React:
+
+  ```ts
+  import { defaultMapError, type ActionResult } from "submitly/core";
+  ```
 </Callout>

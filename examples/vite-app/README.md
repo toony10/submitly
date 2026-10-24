@@ -42,16 +42,18 @@ So the actions stay one-liners: `action: (values) => api.createProduct(values)`.
 | Provider prop | Wired to |
 | --- | --- |
 | `notify` | the app's own toast + the event log |
+| `onError` | sends a `401` to `/login` (see below) |
 | `onMutated` | `queryClient.invalidateQueries()` (products and settings refetch) |
 | `navigate` | React Router's `navigate` (also logged) |
 | `normalize` / `mapError` | `src/lib/crud-adapter.ts` |
 
 ### Expired session → `/login`
 
-The `401` endpoint throws `ApiError(401)`, `mapError` makes it a failed result
-with `statusCode: 401`, and the provider's `notify.error` handler checks for
-that status, navigates to `/login` and skips the toast. Every failed action in
-the app goes through `notify.error`, so one check covers all of them.
+The `401` endpoint throws `ApiError(401)` and `mapError` makes it a failed result
+with `statusCode: 401`. The provider's `onError` runs for every failed action in
+the app (after `notify.error`, before any per-call `onError`), so one check there
+navigates to `/login` for all of them. `notify.error` only skips the toast for
+that status, since the page change is the feedback.
 
 Why not the alternatives in the package's API?
 
@@ -59,7 +61,8 @@ Why not the alternatives in the package's API?
 - `isInterrupt` makes the hooks stop silently, but it is a predicate: it must not
   navigate itself, so something else would still have to. It fits errors that a
   framework already handles (Next's `redirect()`), which is what `next-app` does.
-- `onError` is per call, so it would have to be repeated on every form and action.
+- A per-call `onError` would have to be repeated on every form and action. The
+  provider-level `onError` is the cross-cutting hook.
 
 ## Notes
 

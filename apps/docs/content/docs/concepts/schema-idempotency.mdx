@@ -92,10 +92,10 @@ This keeps the server strict about the real wire format. The cost is two schemas
 
 ## Test it
 
-A one-minute test catches this class of bug. The `validate` helper from `submitly` runs any Standard Schema:
+A one-minute test catches this class of bug. The `validate` helper from `submitly/core` runs any Standard Schema:
 
 ```ts
-import { validate } from "submitly";
+import { validate } from "submitly/core";
 import { expect, it } from "vitest";
 
 import { productSchema } from "@/lib/schema";

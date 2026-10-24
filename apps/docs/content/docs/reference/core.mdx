@@ -1,0 +1,169 @@
+---
+title: "submitly/core"
+description: The pure result and schema helpers and every shared type, importable from Server Components and server actions.
+---
+
+```ts
+import { isActionResult, defaultNormalize, issuesToErrors /* ... */ } from "submitly/core";
+import type { ActionResult, FieldErrorMap } from "submitly/core";
+```
+
+The framework-free half of the package: plain functions and types, no React, no Next.js. Unlike the main entry, it has
+**no `"use client"` directive**, so it can be imported and **called** from Server Components, server actions, route
+handlers and tests. The main `submitly` entry re-exports everything on this page, so existing
+`import { defaultNormalize } from "submitly"` code keeps working in client code; in server code, import from
+`submitly/core` instead (calling a function from a client module on the server throws "Attempted to call ... from the
+server").
+
+```ts
+// app/actions.ts
+"use server";
+
+import { defaultMapError, type ActionResult } from "submitly/core";
+
+export async function archiveProduct(id: number): Promise<ActionResult> {
+  try {
+    await db.products.archive(id);
+    return { success: true, message: "Archived" };
+  } catch (error) {
+    return defaultMapError(error);
+  }
+}
+```
+
+| Export | Kind |
+| --- | --- |
+| [`isActionResult`](#isactionresult), [`defaultNormalize`](#defaultnormalize), [`defaultMapError`](#defaultmaperror) | Result helpers |
+| [`getDotPath`](#getdotpath), [`issuesToErrors`](#issuestoerrors), [`validate`](#validate) | Schema helpers |
+| [`ActionResult`](#actionresult), [`FieldErrorMap`](#fielderrormap), [`Normalize`](#normalize-and-maperror), [`MapError`](#normalize-and-maperror), [`NotifyHandlers`](#notifyhandlers), [`InferResultData`](#inferresultdata) | Types |
+
+## Shared types
+
+### `NotifyHandlers`
+
+```ts
+type NotifyHandlers = {
+  success?: (result: ActionResult) => void;
+  error?: (result: ActionResult) => void;
+};
+```
+
+Called with the whole result, and only when `result.message` is set.
+
+### `Normalize` and `MapError`
+
+```ts
+type Normalize = (raw: unknown) => ActionResult;
+type MapError = (error: unknown) => ActionResult;
+```
+
+`Normalize` turns whatever an action returned into an `ActionResult`. `MapError` turns a thrown error (network failure,
+HTTP error, ...) into one.
+
+### `InferResultData`
+
+```ts
+type InferResultData<TResult> = [TResult] extends [ActionResult<infer TData>] ? TData : unknown;
+```
+
+Extracts `TData` from an action's return type. Actions that do not return an `ActionResult` (for example a fetch wrapper
+returning the entity) give `unknown`, because a provider-level `normalize` decides what `data` ends up being.
+
+## Result contract
+
+### `ActionResult`
+
+```ts
+type ActionResult<TData = unknown> = {
+  success: boolean;
+  message?: string;
+  data?: TData;
+  errors?: string[];
+  fieldErrors?: FieldErrorMap;
+  statusCode?: number;
+};
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `success` | `boolean` | Required. Chooses the success or failure path. |
+| `message` | `string` | Passed to `notify.success` / `notify.error` when present. |
+| `data` | `TData` | The payload, passed to callbacks. |
+| `errors` | `string[]` | Form-level errors, exposed as `serverErrors`. |
+| `fieldErrors` | `FieldErrorMap` | Field errors keyed by dotted path, applied with `form.setError`. |
+| `statusCode` | `number` | Optional and informational. |
+
+See [The ActionResult contract](/docs/concepts/action-result).
+
+### `FieldErrorMap`
+
+```ts
+type FieldErrorMap = Record<string, string[]>;
+```
+
+Field errors keyed by dotted path, matching react-hook-form field names (`items.0.name`).
+
+### `isActionResult`
+
+```ts
+function isActionResult(value: unknown): value is ActionResult;
+```
+
+True for a non-null object whose `success` property is a boolean. This is the check `defaultNormalize` uses to decide
+whether a value is already an `ActionResult`.
+
+### `defaultNormalize`
+
+```ts
+function defaultNormalize(raw: unknown): ActionResult;
+```
+
+The built-in `normalize`. `ActionResult`-shaped values pass through; `undefined` becomes `{ success: true }`; anything
+else becomes `{ success: true, data: raw }`. Call it from your own `normalize` as the fallback for values you do not
+recognize.
+
+### `defaultMapError`
+
+```ts
+function defaultMapError(error: unknown): ActionResult;
+```
+
+The built-in `mapError`. An `Error` (or a thrown string) becomes
+`{ success: false, message, errors: [message] }`, so a thrown error is never silent. Any other value becomes
+`{ success: false }`. Call it from your own `mapError` as the fallback for errors you do not recognize.
+
+## Schema helpers
+
+### `validate`
+
+```ts
+function validate<TSchema extends StandardSchemaV1>(
+  schema: TSchema,
+  input: unknown,
+): Promise<StandardSchemaV1.Result<StandardSchemaV1.InferOutput<TSchema>>>;
+```
+
+Runs any Standard Schema, sync or async, and returns its result: `{ value }` on success, `{ issues }` on failure.
+`runAction` uses the same call. Handy in tests, for example to check a schema's [idempotency](/docs/concepts/schema-idempotency).
+
+### `getDotPath`
+
+```ts
+function getDotPath(issue: StandardSchemaV1.Issue): string | undefined;
+```
+
+The dotted path of a Standard Schema issue (`items.0.name`), the format react-hook-form uses for field names. Returns
+`undefined` for root-level issues (no path) and for paths containing a symbol key.
+
+### `issuesToErrors`
+
+```ts
+function issuesToErrors(issues: readonly StandardSchemaV1.Issue[]): {
+  fieldErrors: FieldErrorMap;
+  errors: string[];
+};
+```
+
+Splits schema issues into `fieldErrors` (keyed by dotted path, several messages per field when there are several
+issues) and form-level `errors` (issues without a usable path). It is what `runAction` uses to build a validation
+failure.

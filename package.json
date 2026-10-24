@@ -15,7 +15,7 @@
     "check-exports": "turbo run check-exports --filter=submitly",
     "changeset": "changeset",
     "size": "turbo run size --filter=submitly",
-    "e2e": "pnpm --filter submitly-e2e test"
+    "e2e": "pnpm --filter submitly build && pnpm --filter submitly-e2e test"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3",

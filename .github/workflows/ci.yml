@@ -46,12 +46,14 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Build
-        run: pnpm build
+      # The Playwright webServers build the examples themselves; they only need the library built.
+      - name: Build the library
+        run: pnpm --filter submitly build
       - name: Install Playwright browser
         run: pnpm --filter submitly-e2e exec playwright install --with-deps chromium
       - name: E2E
-        run: pnpm e2e
+        # Not `pnpm e2e`: that script builds the library first, which the step above already did.
+        run: pnpm --filter submitly-e2e test
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v5

@@ -189,6 +189,44 @@ describe("runAction", () => {
       }),
     ).resolves.toMatchObject({ message: "Erreur inattendue", errors: ["Erreur inattendue"] });
   });
+
+  it("rejects when messages() throws on the validation path, without calling onError or mapError", async () => {
+    const boom = new Error("messages broke");
+    const onError = vi.fn();
+    const mapError = vi.fn();
+
+    await expect(
+      runAction({
+        schema,
+        input: {},
+        handler: vi.fn(),
+        messages: () => {
+          throw boom;
+        },
+        onError,
+        mapError,
+      }),
+    ).rejects.toBe(boom);
+    expect(onError).not.toHaveBeenCalled();
+    expect(mapError).not.toHaveBeenCalled();
+  });
+
+  it("rejects when messages() throws on the unexpected-error path", async () => {
+    const boom = new Error("messages broke");
+
+    await expect(
+      runAction({
+        schema,
+        input: { name: "Lamp" },
+        handler: () => {
+          throw new Error("handler failed");
+        },
+        messages: () => {
+          throw boom;
+        },
+      }),
+    ).rejects.toBe(boom);
+  });
 });
 
 describe("createRunAction", () => {

@@ -124,23 +124,32 @@ async function run<TSchema extends StandardSchemaV1, TRaw, TData>(
   options: RunActionOptions<TSchema, TRaw, TData>,
   defaults: RunActionDefaults,
 ): Promise<ActionResult<TData>> {
+  let parsed: StandardSchemaV1.Result<StandardSchemaV1.InferOutput<TSchema>>;
+
   try {
-    const parsed = await options.schema["~standard"].validate(options.input);
+    parsed = await options.schema["~standard"].validate(options.input);
+  } catch (error) {
+    return failUnexpectedly(error, options, defaults);
+  }
 
-    if (parsed.issues) {
-      const messages = await resolveMessages(defaults.messages, options.messages);
-      const { fieldErrors, errors } = issuesToErrors(parsed.issues);
+  if (parsed.issues) {
+    // Outside any `try`: a throwing `messages` function rejects here, as it does in `failUnexpectedly`.
+    const messages = await resolveMessages(defaults.messages, options.messages);
+    const { fieldErrors, errors } = issuesToErrors(parsed.issues);
 
-      return {
-        success: false,
-        statusCode: 422,
-        message: messages.validation,
-        errors,
-        fieldErrors,
-      };
-    }
+    return {
+      success: false,
+      statusCode: 422,
+      message: messages.validation,
+      errors,
+      fieldErrors,
+    };
+  }
 
-    const raw = await options.handler(parsed.value);
+  const data = parsed.value;
+
+  try {
+    const raw = await options.handler(data);
     const result = options.normalize
       ? options.normalize(raw)
       : (defaultNormalize(raw) as ActionResult<TData>);
@@ -148,7 +157,7 @@ async function run<TSchema extends StandardSchemaV1, TRaw, TData>(
     if (result.success && options.revalidate) {
       const targets =
         typeof options.revalidate === "function"
-          ? options.revalidate(parsed.value, result)
+          ? options.revalidate(data, result)
           : options.revalidate;
 
       revalidate(targets);
@@ -156,25 +165,33 @@ async function run<TSchema extends StandardSchemaV1, TRaw, TData>(
 
     return result;
   } catch (error) {
-    unstable_rethrow(error);
-
-    (options.onError ?? defaults.onError)?.(error);
-
-    const mapError = options.mapError ?? defaults.mapError;
-
-    if (mapError) {
-      return mapError(error) as ActionResult<TData>;
-    }
-
-    const messages = await resolveMessages(defaults.messages, options.messages);
-
-    return {
-      success: false,
-      statusCode: 500,
-      message: messages.unexpected,
-      errors: [messages.unexpected],
-    };
+    return failUnexpectedly(error, options, defaults);
   }
+}
+
+async function failUnexpectedly<TSchema extends StandardSchemaV1, TRaw, TData>(
+  error: unknown,
+  options: RunActionOptions<TSchema, TRaw, TData>,
+  defaults: RunActionDefaults,
+): Promise<ActionResult<TData>> {
+  unstable_rethrow(error);
+
+  (options.onError ?? defaults.onError)?.(error);
+
+  const mapError = options.mapError ?? defaults.mapError;
+
+  if (mapError) {
+    return mapError(error) as ActionResult<TData>;
+  }
+
+  const messages = await resolveMessages(defaults.messages, options.messages);
+
+  return {
+    success: false,
+    statusCode: 500,
+    message: messages.unexpected,
+    errors: [messages.unexpected],
+  };
 }
 
 async function resolveMessages(

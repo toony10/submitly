@@ -371,6 +371,37 @@ describe("useCrudAction", () => {
       });
     });
 
+    it.each([
+      ["the provider mapError", { mapError: throws }, {}],
+      ["a per-call mapError", {}, { mapError: throws }],
+      ["isInterrupt", { isInterrupt: throws }, {}],
+    ])("propagate from %s when the action throws", async (_name, provider, call) => {
+      const wrapper = ({ children }: { children: ReactNode }) => (
+        <CrudProvider {...provider}>{children}</CrudProvider>
+      );
+      const { result } = renderHook(
+        () =>
+          useCrudAction({
+            action: async () => {
+              throw new Error("from the action");
+            },
+            ...call,
+          }),
+        { wrapper },
+      );
+
+      await act(async () => {
+        await expect(result.current.execute()).rejects.toThrow("cb");
+      });
+
+      expect(result.current.isPending).toBe(false);
+
+      // The in-flight guard is released: a later call runs (and rejects) again.
+      await act(async () => {
+        await expect(result.current.execute()).rejects.toThrow("cb");
+      });
+    });
+
     it("still maps errors thrown by the action itself", async () => {
       const { wrapper } = providerWrapper();
       const { result } = renderHook(

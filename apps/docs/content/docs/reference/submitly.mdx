@@ -65,8 +65,8 @@ receives), and `TResult` the action's resolved type, from which `TData` is infer
 | Property | Type | Description |
 | --- | --- | --- |
 | `form` | `UseFormReturn<TFieldValues, unknown, TOutput>` | The regular react-hook-form object: `register`, `control`, `formState`, `setValue`, `reset`, ... |
-| `onSubmit` | `(event?: BaseSyntheticEvent) => Promise<void>` | Pass it to `<form onSubmit>`. The action's own errors and failures never reject it (they become `serverErrors` and field errors), but an error thrown by **your own callbacks** propagates (see [what is guarded](/docs/concepts/submit-lifecycle#guarantees-and-boundaries)). Ignores submits while one is in flight. |
-| `serverErrors` | `string[]` | Form-level errors from the last failed result: `result.errors`, plus `fieldErrors` entries with no usable key. Cleared at the start of the next submit. |
+| `onSubmit` | `(event?: BaseSyntheticEvent) => Promise<void>` | Pass it to `<form onSubmit>`. The action's own errors and failures never reject it (they become `serverErrors` and field errors), but an error thrown by **your own code** propagates: a callback, `mapError`, `isInterrupt`, or a schema whose `validate()` throws (see [what is guarded](/docs/concepts/submit-lifecycle#guarantees-and-boundaries)). Ignores submits while one is in flight. |
+| `serverErrors` | `string[]` | Form-level errors from the last failed result: `result.errors`, plus `fieldErrors` entries with no usable key. Cleared on the next submit, once client validation passes and just before the action is called. |
 | `clearServerErrors` | `() => void` | Empties `serverErrors`. |
 | `isSubmitting` | `boolean` | react-hook-form's `formState.isSubmitting`, true while the submit (validation, action and callbacks) is running. |
 
@@ -105,7 +105,7 @@ The inherited options (`onSuccess`, `onError`, `redirectTo`, `notify`, `onMutate
 
 | Property | Type | Description |
 | --- | --- | --- |
-| `execute` | `(input: TInput) => Promise<ActionResult<TData>>` | Runs the action. The action's own errors and failures never reject: thrown errors go through `mapError`, and an interrupt resolves with a bare `{ success: false }` and no side effects. An error thrown by **your own callbacks** (`onSuccess`, `onError`, `notify` handlers, `onMutated`, `navigate`, the provider's `onError`) is not caught and rejects the promise (see [what is guarded](/docs/concepts/submit-lifecycle#guarantees-and-boundaries)). While a call is in flight, further calls return the same promise. Stable identity across renders. |
+| `execute` | `(input: TInput) => Promise<ActionResult<TData>>` | Runs the action. The action's own errors and failures never reject: thrown errors go through `mapError`, and an interrupt resolves with a bare `{ success: false }` and no side effects. An error thrown by **your own code** (the callbacks `onSuccess`, `onError`, `notify` handlers, `onMutated`, `navigate`, the provider's `onError`, and also `mapError` and `isInterrupt`) is not caught and rejects the promise (see [what is guarded](/docs/concepts/submit-lifecycle#guarantees-and-boundaries)). While a call is in flight, further calls return the same promise. Stable identity across renders. |
 | `isPending` | `boolean` | True while a call is in flight. |
 | `serverErrors` | `string[]` | `result.errors` of the last failed call. Cleared when the next call starts. |
 | `clearServerErrors` | `() => void` | Empties `serverErrors`. |

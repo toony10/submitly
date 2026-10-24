@@ -208,6 +208,11 @@ export function FormDialog({ title, trigger, open, onOpenChange, children }: For
           event.preventDefault();
           close();
         }}
+        // Chrome closes a modal dialog on a repeated Escape even when `cancel` was
+        // prevented, so reopen it while a save is in flight.
+        onClose={() => {
+          if (lock.isLocked() && ref.current && !ref.current.open) ref.current.showModal();
+        }}
         // Backdrop click.
         onClick={(event) => {
           if (event.target === event.currentTarget) close();

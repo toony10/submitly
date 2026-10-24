@@ -178,7 +178,7 @@ export function FormDialog({ title, trigger, open, onOpenChange, children }: For
 <Tab value="Native <dialog>">
 
 A native `<dialog>` needs a little more glue: you drive `showModal()` / `close()` from the open state, and stop the
-browser's own Escape handling by intercepting `cancel`.
+browser's own Escape handling by intercepting `cancel` (plus a `close` listener for repeated Escape, see the comment below).
 
 ```tsx title="components/form-dialog.native.tsx"
 "use client";
@@ -219,6 +219,11 @@ export function FormDialog({ title, trigger, open, onOpenChange, children }: For
         onCancel={(event) => {
           event.preventDefault();
           close();
+        }}
+        // Chrome closes a modal dialog on a repeated Escape even though `cancel` was
+        // prevented, so put it back while a save is in flight.
+        onClose={() => {
+          if (lock.isLocked() && ref.current && !ref.current.open) ref.current.showModal();
         }}
         // Backdrop click: the click target is the <dialog> itself.
         onClick={(event) => {

@@ -226,8 +226,20 @@ function Root() {
   );
 }
 
+// Placeholder for step 6, where an expired session is sent here. Replace it with your real sign-in page.
+function LoginPage() {
+  return <p>Please sign in again.</p>;
+}
+
 const router = createBrowserRouter([
-  { path: "/", Component: Root, children: [{ index: true, Component: ProductsPage }] },
+  {
+    path: "/",
+    Component: Root,
+    children: [
+      { index: true, Component: ProductsPage },
+      { path: "login", Component: LoginPage },
+    ],
+  },
 ]);
 
 createRoot(document.getElementById("root")!).render(
@@ -335,7 +347,8 @@ and in an error toast.
 
 ## 6. Optional: send an expired session to the login page, once
 
-Some failures are not about one form: a `401` should end up on `/login` no matter which form or button produced it.
+Some failures are not about one form: a `401` should end up on `/login` no matter which form or button produced it
+(the router in step 4 already has a placeholder `/login` route for this).
 Handle it where the other app-wide conventions live, with the provider's `onError`. It runs for **every** failed result
 from `useCrudForm` and `useCrudAction`, after `notify.error`, and never for interrupts. `fromApiError` already put the
 HTTP status in `statusCode`:

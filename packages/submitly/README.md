@@ -195,7 +195,7 @@ Order on failure: `notify.error`, `serverErrors` / field errors, provider `onErr
 The guarantee is about the action:
 
 - **Never rejects:** a thrown error from the action (or `normalize`), a returned `{ success: false }`, a network failure, a 500. They all become an `ActionResult` and take the failure path, and `onSubmit` / `execute` resolve.
-- **Does propagate:** an error thrown by your own callbacks: `onSuccess`, `onError` (per call or provider), `notify` handlers, `onMutated`, `navigate`, or a `redirectTo` function. submitly does not swallow them: `onSubmit` / `execute` reject with that error and the rest of the pipeline is skipped. The pending state and the dialog lock are still released.
+- **Does propagate:** an error thrown by your own code: the callbacks `onSuccess`, `onError` (per call or provider), `notify` handlers, `onMutated`, `navigate` or a `redirectTo` function, and also `mapError` (per call or provider; it runs for an action that throws) and `isInterrupt`. For `useCrudForm`, a schema whose own `validate()` throws (instead of returning issues) rejects `onSubmit` too, and the action is not called. submitly does not swallow them: `onSubmit` / `execute` reject with that error and the rest of the pipeline is skipped. The pending state and the dialog lock are still released.
 
 So keep those callbacks safe, or catch inside them.
 

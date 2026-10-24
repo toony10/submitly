@@ -1,3 +1,4 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -392,6 +393,10 @@ describe("useCrudForm", () => {
       throw new Error("cb");
     };
 
+    const failing = async (): Promise<ActionResult> => {
+      throw new Error("from the action");
+    };
+
     it.each([
       ["onSuccess", {}, { action: async () => ({ success: true }), onSuccess: throws }],
       ["onMutated", { onMutated: throws }, { action: async () => ({ success: true }) }],
@@ -407,6 +412,9 @@ describe("useCrudForm", () => {
       ],
       ["the provider onError", { onError: throws }, { action: async () => ({ success: false }) }],
       ["the per-call onError", {}, { action: async () => ({ success: false }), onError: throws }],
+      ["the provider mapError", { mapError: throws }, { action: failing }],
+      ["the per-call mapError", {}, { action: failing, mapError: throws }],
+      ["isInterrupt", { isInterrupt: throws }, { action: failing }],
     ])("propagate from %s: onSubmit rejects and the form settles", async (_name, provider, options) => {
       const { result } = renderForm(provider, options);
 
@@ -419,6 +427,40 @@ describe("useCrudForm", () => {
       // The in-flight guard is released: a later submit runs again.
       await act(async () => {
         await expect(result.current.onSubmit()).rejects.toThrow("cb");
+      });
+    });
+
+    it("propagates an error thrown by the schema's own validate()", async () => {
+      const action = vi.fn(async () => ({ success: true }));
+      const wrapper = ({ children }: { children: ReactNode }) => <CrudProvider>{children}</CrudProvider>;
+      const { result } = renderHook(
+        () =>
+          useCrudForm({
+            schema: {
+              "~standard": {
+                version: 1,
+                vendor: "test",
+                validate: () => {
+                  throw new Error("validate blew up");
+                },
+              },
+            } as StandardSchemaV1<{ name: string }, { name: string }>,
+            defaultValues: { name: "Lamp" },
+            action,
+          }),
+        { wrapper },
+      );
+
+      await act(async () => {
+        await expect(result.current.onSubmit()).rejects.toThrow("validate blew up");
+      });
+
+      expect(action).not.toHaveBeenCalled();
+      expect(result.current.form.formState.isSubmitting).toBe(false);
+
+      // The in-flight guard is released: a later submit runs (and rejects) again.
+      await act(async () => {
+        await expect(result.current.onSubmit()).rejects.toThrow("validate blew up");
       });
     });
 

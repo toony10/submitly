@@ -50,7 +50,7 @@ Then the path forks on `result.success`.
 
 | Order | Step | Notes |
 | --- | --- | --- |
-| 1 | `notify.success(result)` | Only when `result.message` is set and `notify` is not `false`. Per-call handler first, then the provider's. |
+| 1 | `notify.success(result)` | Only when `result.message` is set and `notify` is not `false`. A per-call `notify.success` replaces the provider's `notify.success` for that call; it does not add to it. |
 | 2 | `onMutated()` | Per-call `onMutated` replaces the provider's; `false` skips it. |
 | 3 | Form reset | `form.reset(defaultValues)`. Skipped with `resetOnSuccess: false`. |
 | 4 | `onSuccess(result)` | Your callback. |
@@ -107,9 +107,11 @@ The guarantee is about **the action**, and it is precise:
 
 - **Never rejects:** a thrown error from the action (or from `normalize`), a returned `{ success: false }`, a network
   failure, a 500. All of them become an `ActionResult` and take the failure path above. `onSubmit` / `execute` resolve.
-- **Does propagate:** an error thrown by **your own callbacks**: `onSuccess`, a per-call `onError`, a `notify` handler,
-  `onMutated`, `navigate` (or `redirectTo` when it is a function), and the provider's `onError`. submitly does not
-  swallow them. `onSubmit` / `execute` reject with that error, the remaining steps of the pipeline are skipped, and the
+- **Does propagate:** an error thrown by **your own code**: the callbacks `onSuccess`, a per-call `onError`, a `notify`
+  handler, `onMutated`, `navigate` (or `redirectTo` when it is a function), and the provider's `onError`; also `mapError`
+  (per call or provider, which runs when the action throws) and `isInterrupt`. For `useCrudForm`, a schema whose own
+  `validate()` throws instead of returning issues rejects `onSubmit` as well, and the action is not called. submitly does
+  not swallow any of these. `onSubmit` / `execute` reject with that error, the remaining steps of the pipeline are skipped, and the
   pending state and dialog lock are still released.
 
 <Callout type="warn">

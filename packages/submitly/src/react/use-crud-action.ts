@@ -23,10 +23,10 @@ export type UseCrudActionReturn<TInput, TData> = {
   /**
    * Runs the action. The action's own errors and failures never reject: a
    * thrown error goes through `mapError` (interrupts resolve with a bare
-   * `{ success: false }` and no side effects). Errors thrown by your own
-   * callbacks (`onSuccess`, `onError`, `notify` handlers, `onMutated`,
-   * `navigate`, the provider's `onError`) are not caught and reject the
-   * returned promise. While a call is in flight, further calls return the
+   * `{ success: false }` and no side effects). Errors thrown by your own code
+   * (`onSuccess`, `onError`, `notify` handlers, `onMutated`, `navigate`, the
+   * provider's `onError`, `mapError`, `isInterrupt`) are not caught and reject
+   * the returned promise. While a call is in flight, further calls return the
    * same promise. Stable identity across renders.
    */
   execute: (input: TInput) => Promise<ActionResult<TData>>;

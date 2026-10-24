@@ -233,8 +233,9 @@ export function DeleteButton({ id }: { id: number }) {
 }
 ```
 
-`execute` never rejects, has a stable identity, and returns the same promise while a call is in flight, so a double
-click fires once.
+`execute` has a stable identity and returns the same promise while a call is in flight, so a double click fires once.
+A failing action never makes it reject (the failure comes back as an `ActionResult`); errors thrown by your own
+callbacks do propagate.
 
 ## 7. Put it on a page
 

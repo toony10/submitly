@@ -45,9 +45,10 @@ export type UseCrudFormReturn<TFieldValues extends FieldValues, TOutput> = {
   /**
    * Pass to `<form onSubmit>`. Ignores submits while one is in flight. The
    * action's own errors and failures never reject (they become `serverErrors`
-   * and field errors); errors thrown by your own callbacks (`onSuccess`,
+   * and field errors); errors thrown by your own code (`onSuccess`,
    * `onError`, `notify` handlers, `onMutated`, `navigate`, the provider's
-   * `onError`) are not caught and reject the returned promise.
+   * `onError`, `mapError`, `isInterrupt`, or a schema whose `validate()`
+   * throws) are not caught and reject the returned promise.
    */
   onSubmit: (event?: BaseSyntheticEvent) => Promise<void>;
   serverErrors: string[];

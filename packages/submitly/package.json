@@ -17,7 +17,19 @@
     "server-actions"
   ],
   "license": "MIT",
-  "author": "toony10",
+  "author": {
+    "name": "toony10",
+    "url": "https://anton-web-portfolio.vercel.app/"
+  },
+  "homepage": "https://github.com/toony10/submitly#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/toony10/submitly.git",
+    "directory": "packages/submitly"
+  },
+  "bugs": {
+    "url": "https://github.com/toony10/submitly/issues"
+  },
   "type": "module",
   "sideEffects": false,
   "files": [

@@ -1,9 +1,10 @@
 import { createRelativeLink } from "fumadocs-ui/mdx";
-import { DocsBody, DocsDescription, DocsPage, DocsTitle } from "fumadocs-ui/layouts/docs/page";
+import { DocsBody, DocsDescription, DocsPage, DocsTitle, EditOnGitHub } from "fumadocs-ui/layouts/docs/page";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { getMDXComponents } from "@/components/mdx";
+import { site } from "@/lib/site";
 import { source } from "@/lib/source";
 
 type Props = { params: Promise<{ slug?: string[] }> };
@@ -23,6 +24,7 @@ export default async function Page({ params }: Props) {
       <DocsBody>
         <MDX components={getMDXComponents({ a: createRelativeLink(source, page) })} />
       </DocsBody>
+      <EditOnGitHub href={`${site.repo}/blob/main/apps/docs/content/docs/${page.path}`} />
     </DocsPage>
   );
 }

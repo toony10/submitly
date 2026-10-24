@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { site } from "@/lib/site";
+
 export default function HomePage() {
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-6 px-6 py-24">
@@ -18,7 +20,17 @@ export default function HomePage() {
         <Link href="/docs" className="rounded-lg border px-4 py-2 text-sm font-medium">
           Read the docs
         </Link>
+        <a href={site.repo} className="rounded-lg border px-4 py-2 text-sm font-medium">
+          GitHub
+        </a>
       </div>
+      <p className="text-sm text-fd-muted-foreground">
+        Created by{" "}
+        <a href={site.author.portfolio} className="font-medium text-fd-foreground underline underline-offset-4">
+          {site.author.name}
+        </a>
+        . MIT licensed.
+      </p>
     </main>
   );
 }

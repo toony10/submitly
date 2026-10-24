@@ -27,6 +27,10 @@ pnpm build
 pnpm test
 ```
 
+## Author
+
+Created by [toony10](https://anton-web-portfolio.vercel.app/) ([GitHub](https://github.com/toony10)). Source, issues and releases: [github.com/toony10/submitly](https://github.com/toony10/submitly).
+
 ## License
 
 MIT

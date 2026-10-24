@@ -337,6 +337,10 @@ type ActionResult<TData = unknown> = {
 
 With the default `normalize`, an action can also return a plain value (an entity, or nothing): that counts as `{ success: true, data }`. An action that throws is mapped through `mapError`. `useCrudAction` exposes `result.errors` as `serverErrors`; `useCrudForm` also folds any `fieldErrors` without a usable key into `serverErrors`.
 
+## Author
+
+Created by [toony10](https://anton-web-portfolio.vercel.app/) ([GitHub](https://github.com/toony10)). Source, issues and releases: [github.com/toony10/submitly](https://github.com/toony10/submitly).
+
 ## License
 
 MIT

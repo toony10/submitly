@@ -222,7 +222,7 @@ export function ProductDialog({
 - `DialogLockProvider` makes `scope` available to the hooks below it. Outside a provider the lock is a no-op.
 - `useDialogLock(locked)` locks the nearest dialog manually, and `useDialogLockHandle()` returns an imperative setter, for custom pending states.
 
-The same pieces work with a native `<dialog>`: drive `showModal()` / `close()` from `dialog.open`, and call `event.preventDefault()` in its `cancel` event while `lock.isLocked()` is true.
+The same pieces work with a native `<dialog>`: drive `showModal()` / `close()` from `dialog.open`, and call `event.preventDefault()` in its `cancel` event while `lock.isLocked()` is true. Chrome still closes a modal dialog on a repeated Escape, so also listen for `close` and call `showModal()` again while `lock.isLocked()` is true.
 
 ## Next.js
 

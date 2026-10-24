@@ -1,10 +1,8 @@
 import { expect, test } from "./fixtures";
 
-test("a repeated Escape cannot close the locked dialog either", async ({ app, page }, testInfo) => {
-  // Chrome closes a native modal dialog on a second Escape even when `cancel` was prevented.
-  // The Vite example re-opens it from the `close` event while locked; the Next example's
-  // Dialog has no such handler yet (reported, example source left untouched).
-  test.fixme(testInfo.project.name === "next", "next-app Dialog has no onClose re-open guard");
+test("a repeated Escape cannot close the locked dialog either", async ({ app, page }) => {
+  // Chrome closes a native modal dialog on a second Escape even when `cancel` was prevented;
+  // both examples re-open it from the `close` event while locked.
 
   await app.setLatency("2 s");
   await app.row("Desk lamp").getByRole("button", { name: "Edit" }).click();

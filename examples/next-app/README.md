@@ -24,3 +24,11 @@ a Server Component to check that the `"use client"` boundary survives the
 build.
 
 Data is kept in memory (`lib/store.ts`) and resets when the server restarts.
+
+## Why `--webpack`
+
+Inside this pnpm workspace, Turbopack (Next 16.4) intermittently fails to
+resolve packages through pnpm's virtual-store symlinks (most recently
+`Could not find the Next.js package (next/package.json)`), while
+webpack and Node resolve them fine. A packed `submitly` tarball installed into a
+standalone Next 16 app builds with Turbopack, so this only affects the workspace.

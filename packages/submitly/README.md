@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/toony10/submitly/main/brand/logo-dark.svg">
+    <img src="https://raw.githubusercontent.com/toony10/submitly/main/brand/logo.svg" alt="submitly" height="64">
+  </picture>
+</p>
+
 # submitly
 
 Headless form submission for React and Next.js: Standard Schema validation, typed actions, server errors mapped to fields, pending and dialog locks, and post-mutation refresh. It renders nothing, so it works with any UI: plain elements, shadcn, Radix, Base UI, Headless UI, native `<dialog>`.

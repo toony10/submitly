@@ -1,0 +1,129 @@
+---
+title: Bulk delete
+description: Select rows, confirm once, delete them in one action.
+---
+
+Bulk actions are a `useCrudAction` whose input is a list. This recipe adds row selection and a confirm dialog to the table
+from [Add, edit and delete an entity](/docs/recipes/add-edit-delete).
+
+## The server action
+
+One action takes the list of ids and validates it. Deleting is idempotent here: an id that is already gone is not an
+error.
+
+```ts title="app/bulk-actions.ts"
+"use server";
+
+import { runAction } from "submitly/next/server";
+import { z } from "zod";
+
+import { db } from "@/lib/db";
+
+export async function deleteProducts(ids: unknown) {
+  return runAction({
+    schema: z.array(z.number().int()).min(1, "Select at least one product"),
+    input: ids,
+    handler: (productIds) => {
+      for (const id of productIds) db.remove(id);
+
+      return { success: true, message: `Deleted ${productIds.length} products` };
+    },
+    revalidate: { paths: ["/products"] },
+  });
+}
+```
+
+<Callout>
+  `revalidate` runs only for **successful** results. If your backend can fail for some ids and succeed for others,
+  decide what the user should see. Returning `{ success: false, errors }` shows the errors but skips revalidation, so
+  the rows that were deleted stay on screen until the next refresh. If the partial success matters more, return
+  `success: true` with a `message` that reports the failures, or call `revalidatePath` yourself in the handler.
+</Callout>
+
+## The selection UI
+
+```tsx title="components/bulk-delete-bar.tsx"
+"use client";
+
+import { useCrudAction } from "submitly";
+
+import { deleteProducts } from "@/app/bulk-actions";
+
+export function BulkDeleteBar({ selected, onDone }: { selected: number[]; onDone: () => void }) {
+  const { execute, isPending, serverErrors } = useCrudAction({
+    action: (ids: number[]) => deleteProducts(ids),
+    onSuccess: onDone, // clear the selection only when the delete worked
+  });
+
+  if (selected.length === 0) return null;
+
+  return (
+    <div role="region" aria-label="Bulk actions">
+      <span>{selected.length} selected</span>
+      <button type="button" disabled={isPending} onClick={() => execute(selected)}>
+        {isPending ? "Deleting..." : `Delete ${selected.length}`}
+      </button>
+      {serverErrors.map((message, index) => (
+        <p key={index} role="alert">
+          {message}
+        </p>
+      ))}
+    </div>
+  );
+}
+```
+
+```tsx title="components/selectable-table.tsx"
+"use client";
+
+import { useState } from "react";
+
+import type { Product } from "@/lib/db";
+
+import { BulkDeleteBar } from "./bulk-delete-bar";
+
+export function SelectableTable({ products }: { products: Product[] }) {
+  const [selected, setSelected] = useState<number[]>([]);
+
+  function toggle(id: number) {
+    setSelected((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
+  }
+
+  return (
+    <>
+      <BulkDeleteBar selected={selected} onDone={() => setSelected([])} />
+      <table>
+        <tbody>
+          {products.map((product) => (
+            <tr key={product.id}>
+              <td>
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${product.name}`}
+                  checked={selected.includes(product.id)}
+                  onChange={() => toggle(product.id)}
+                />
+              </td>
+              <td>{product.name}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
+```
+
+## Confirming first
+
+To ask for confirmation, put the `BulkDeleteBar` button behind the confirm dialog pattern from
+[Add, edit and delete](/docs/recipes/add-edit-delete#delete-with-a-confirmation-that-closes-on-success-only): render the
+`useCrudAction` inside a `FormDialog`, and pass `onSuccess` that closes the dialog **and** clears the selection. The
+dialog locks while the request runs, so the user cannot dismiss it halfway.
+
+## Notes
+
+- `execute` never rejects, so the click handler needs no `try` / `catch`.
+- The selection is cleared in `onSuccess`, which runs only for a successful result. On failure the rows stay selected,
+  and the errors are shown.
+- If the table is paginated, keep the selection in a URL parameter or a store instead of component state.

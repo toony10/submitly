@@ -1,0 +1,92 @@
+---
+title: The dialog lock
+description: How a dialog stays open while a save is in flight, with any dialog library.
+---
+
+A dialog that closes while its form is still saving loses the user's result: the success toast appears for something
+they no longer see, or an error appears with no form to fix it. submitly prevents this without knowing anything about
+your dialog library.
+
+## The idea
+
+There are two sides, connected by React context:
+
+- The **owner** is your dialog component. It creates a lock scope with `useDialogLockScope()`, feeds `isLocked` to
+  `useControllableDialog` so open-state changes are ignored while locked, and wraps its content in
+  `<DialogLockProvider scope={scope}>`.
+- The **holders** are the hooks below the owner. `useCrudForm` and `useCrudAction` take the lock automatically while
+  they are pending and release it when they settle (or unmount).
+
+The dialog is locked while **any** holder below the matching `DialogLockProvider` holds the lock.
+
+```tsx
+const lock = useDialogLockScope();
+const dialog = useControllableDialog({ open, onOpenChange, locked: lock.isLocked });
+
+<YourDialog open={dialog.open} onOpenChange={dialog.setOpen}>
+  <DialogLockProvider scope={lock.scope}>
+    <ProductForm key={dialog.openKey} />
+  </DialogLockProvider>
+</YourDialog>;
+```
+
+Every route that changes the open state goes through `dialog.setOpen`: escape, overlay click, the close button and your
+own `onSuccess`. While locked, `setOpen` ignores them all. The full component is in
+[Dialogs](/docs/recipes/dialogs).
+
+## `locked` versus `isLocked()`
+
+`useDialogLockScope()` returns both:
+
+| Value | Use it for | Why |
+| --- | --- | --- |
+| `locked` (boolean) | **Rendering**: disable the close button, show a "Saving..." hint, set `aria-busy`. | It is React state, so it re-renders the owner. |
+| `isLocked()` (function) | **Guards**: `useControllableDialog({ locked: lock.isLocked })`. | It reads the lock synchronously, so it is correct even before the owner re-renders. |
+
+The distinction matters because a hook releases the lock and your `onSuccess` closes the dialog **in the same tick**.
+A guard that read the stale `locked` boolean would still see "locked" and swallow the close. `isLocked()` sees the
+release immediately.
+
+## Release timing
+
+`useCrudForm` and `useCrudAction` release the lock **before** they run `notify`, `onMutated`, `onSuccess` and the
+redirect, so a callback that closes the dialog is never blocked by the lock the hook itself holds.
+
+## Opting out
+
+Pass `lockDialog: false` to a hook to leave the dialog unlocked for that call:
+
+```tsx
+useCrudAction({ action: refreshPreview, lockDialog: false });
+```
+
+## Manual locks
+
+For pending states that are not a submitly mutation (an upload, a long-running client task), lock the dialog yourself:
+
+```tsx
+// Declarative: locked while `uploading` is true.
+useDialogLock(uploading);
+
+// Imperative: a stable setter.
+const setLock = useDialogLockHandle();
+setLock(true);
+// ...
+setLock(false);
+```
+
+Both are no-ops outside a `DialogLockProvider`, so components that sometimes render in a dialog and sometimes in a page
+need no special casing. Locks are released automatically when the holder unmounts.
+
+## Nesting
+
+A holder locks the **nearest** `DialogLockProvider`. A dialog opened from inside another dialog should create its own
+scope with its own `useDialogLockScope()`, so saving in the inner dialog does not lock the outer one.
+
+## Remounting forms: `openKey`
+
+`useControllableDialog` also returns `openKey`, a number that increments on every closed-to-open transition, including
+**controlled** opens. Use it as the `key` of the form inside the dialog, and the form remounts with fresh
+`defaultValues` each time the dialog opens, with no stale input and no leftover server errors.
+
+See the [API reference](/docs/reference/submitly#usecontrollabledialog) for the full signatures.

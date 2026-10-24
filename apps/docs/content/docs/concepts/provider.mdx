@@ -1,0 +1,111 @@
+---
+title: The provider and resolution order
+description: How CrudProvider supplies notify, refresh, navigation and result mapping, and in what order settings are resolved.
+---
+
+submitly depends on no toast library, no router and no data-fetching library. `CrudProvider` is where you plug them in,
+once, for the whole app:
+
+```tsx
+<CrudProvider
+  notify={{
+    success: (result) => toast.success(result.message),
+    error: (result) => toast.error(result.message),
+  }}
+  onMutated={() => queryClient.invalidateQueries()}
+  navigate={(to) => navigate(to)}
+  normalize={fromMyApi}
+  mapError={fromAxiosError}
+  isInterrupt={isMyRedirectError}
+>
+  {children}
+</CrudProvider>
+```
+
+Every prop is optional. Without a provider at all, the hooks use the built-in defaults.
+
+| Prop | Purpose | Built-in default |
+| --- | --- | --- |
+| `notify` | `{ success, error }` handlers, called with the `ActionResult` when it has a `message`. | No-ops. |
+| `onMutated` | Called after every successful mutation: refetch, invalidate queries, `router.refresh()`. | No-op. |
+| `navigate` | Used by `redirectTo`. | `window.location.assign(to)` (a full page load). |
+| `normalize` | Turns whatever an action returned into an `ActionResult`. | `ActionResult`-shaped values pass through; anything else becomes `{ success: true, data }`. |
+| `mapError` | Turns a thrown error into an `ActionResult`. | A failed result carrying the error's message. |
+| `isInterrupt` | Identifies thrown values the framework is already handling (for example a Next.js `redirect()`). | Nothing is an interrupt. |
+
+## Resolution order
+
+Wherever a setting can be given in more than one place, the order is always:
+
+**per-call option, then provider, then built-in default.**
+
+| Setting | Per call (hook option) | Provider | Built-in default |
+| --- | --- | --- | --- |
+| Notifications | `notify: false` silences this call; `notify: { success?, error? }` overrides per handler | `notify` | No-op |
+| Refresh after success | `onMutated: false` skips it; `onMutated: fn` replaces it | `onMutated` | No-op |
+| Navigation | `redirectTo` (a string, or a function of the result) picks the target | `navigate` runs it | `window.location.assign` |
+| Result mapping | `normalize` | `normalize` | `defaultNormalize` |
+| Error mapping | `mapError` | `mapError` | `defaultMapError` |
+| Interrupt detection | none | `isInterrupt` | `() => false` |
+
+Per-call options live on both `useCrudForm` and `useCrudAction`:
+
+```tsx
+useCrudAction({
+  action: archiveProduct,
+  notify: { success: (result) => console.log(result.message) }, // only this call
+  onMutated: false, // the server action already revalidated
+  mapError: fromThatOneLegacyEndpoint,
+});
+```
+
+Per-call `notify` is resolved **per handler**: `notify: { success }` replaces only the success handler for that call,
+while errors still go to the provider's `error` handler.
+
+## Nested providers
+
+Providers can be nested, for example to give one section of the app different behaviour. A child overrides its parent
+**prop by prop**, and `notify` is merged **per key**:
+
+```tsx
+<CrudProvider notify={{ success: toastSuccess, error: toastError }} onMutated={refetchAll}>
+  <Dashboard />
+
+  <CrudProvider notify={{ success: showBanner }} onMutated={refetchOrders}>
+    {/* success -> showBanner, error -> toastError (inherited), onMutated -> refetchOrders */}
+    <OrdersPage />
+  </CrudProvider>
+</CrudProvider>
+```
+
+A prop you leave out (or pass as `undefined`) is inherited. To switch an inherited handler off, pass a no-op
+(`() => {}`) rather than `undefined`.
+
+## Interrupts
+
+Some thrown values are not errors. A Next.js server action that calls `redirect()` throws a special error to unwind the
+stack, and the framework then navigates. `isInterrupt` tells the hooks to stop silently for such values: no `notify`,
+no `serverErrors`, no `onError`, no callbacks. The dialog lock is released, and `useCrudAction`'s `execute` resolves
+with a bare `{ success: false }`.
+
+`NextCrudProvider` sets `isInterrupt` to [`isNextInterrupt`](/docs/reference/next#isnextinterrupt) for you. In a
+single-page app you can use it for your own control-flow errors, for example a "session expired" error that your API
+client already handled by redirecting to a login page.
+
+## Reading the configuration
+
+`useCrudConfig()` returns the fully resolved configuration (every field filled in) for custom hooks that want the same
+conventions. `defaultCrudConfig` is the value used when there is no provider. Both are listed in the
+[API reference](/docs/reference/submitly#crudprovider).
+
+## Performance note
+
+The context value is rebuilt when any prop's identity changes, which re-renders every submitly hook below the provider.
+Behaviour is unaffected, because the hooks always call the latest handlers. To avoid the extra renders, define handler
+props with `useCallback` or hoist them out of the component, instead of creating inline arrow functions on every render.
+
+## The Next.js preset
+
+`NextCrudProvider` from `submitly/next` is a `CrudProvider` with `onMutated` bound to `router.refresh()`, `navigate`
+bound to `router.push()` and `isInterrupt` bound to `isNextInterrupt`. Any prop you pass wins over the preset. See the
+[Next.js quick start](/docs/quick-start-next) and [`submitly/next`](/docs/reference/next).

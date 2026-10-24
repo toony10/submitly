@@ -1,0 +1,17 @@
+{
+  "title": "submitly",
+  "pages": [
+    "index",
+    "installation",
+    "quick-start-next",
+    "quick-start-vite",
+    "---Concepts---",
+    "...concepts",
+    "---Recipes---",
+    "...recipes",
+    "---API reference---",
+    "...reference",
+    "---Guides---",
+    "migration"
+  ]
+}

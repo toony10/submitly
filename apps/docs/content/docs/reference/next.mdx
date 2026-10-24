@@ -1,0 +1,75 @@
+---
+title: "submitly/next"
+description: The Next.js App Router preset for CrudProvider.
+---
+
+```ts
+import { NextCrudProvider, isNextInterrupt } from "submitly/next";
+```
+
+Client-side Next.js integration. It is a client module (`"use client"`), so `NextCrudProvider` can be imported straight
+into a Server Component layout. It needs `next >= 15` as a peer dependency. The server half is documented in
+[`submitly/next/server`](/docs/reference/next-server).
+
+| Export | Kind |
+| --- | --- |
+| [`NextCrudProvider`](#nextcrudprovider) | Component |
+| [`NextCrudProviderProps`](#nextcrudproviderprops) | Type |
+| [`isNextInterrupt`](#isnextinterrupt) | Function |
+
+## `NextCrudProvider`
+
+```ts
+function NextCrudProvider(props: NextCrudProviderProps): JSX.Element;
+```
+
+A [`CrudProvider`](/docs/reference/submitly#crudprovider) preset for the App Router:
+
+| Prop | Preset value |
+| --- | --- |
+| `onMutated` | `router.refresh()`, or a no-op when `refreshOnMutated` is `false` |
+| `navigate` | `router.push(to)` |
+| `isInterrupt` | [`isNextInterrupt`](#isnextinterrupt) |
+
+Any prop you pass wins over the preset. Props that are `undefined` are ignored, so they never erase a preset value.
+
+<Callout>
+  Functions cannot be passed from a Server Component to a Client Component. From a Server Component, pass only
+  serializable props (such as `refreshOnMutated`). To pass `notify`, `onMutated`, `navigate` or other functions, wrap
+  `NextCrudProvider` in your own `"use client"` component. The [Next.js quick start](/docs/quick-start-next) shows
+  the wrapper.
+</Callout>
+
+```tsx
+// app/layout.tsx (Server Component): only serializable props.
+<NextCrudProvider refreshOnMutated={false}>{children}</NextCrudProvider>
+```
+
+## `NextCrudProviderProps`
+
+```ts
+type NextCrudProviderProps = CrudProviderProps & {
+  refreshOnMutated?: boolean;
+};
+```
+
+Every [`CrudProviderProps`](/docs/reference/submitly#crudproviderprops) prop (`children`, `notify`, `onMutated`,
+`navigate`, `normalize`, `mapError`, `isInterrupt`) plus:
+
+| Prop | Type | Default | Description |
+| --- | --- | --- | --- |
+| `refreshOnMutated` | `boolean` | `true` | Call `router.refresh()` after each successful mutation. Turn it off when your server actions already revalidate (`runAction` with `revalidate`), which updates the UI in the same round trip. An explicit `onMutated` prop takes precedence over this flag. |
+
+## `isNextInterrupt`
+
+```ts
+function isNextInterrupt(error: unknown): boolean;
+```
+
+True for Next.js control-flow errors: the errors thrown by `redirect()`, `notFound()`, `forbidden()` and
+`unauthorized()`. It is the preset's `isInterrupt`, exported so you can reuse it, for example in a `CrudProvider` that
+wraps part of a Next.js app with your own settings, or when composing your own `isInterrupt`:
+
+```tsx
+<CrudProvider isInterrupt={(error) => isNextInterrupt(error) || error instanceof SessionExpiredError}>
+```

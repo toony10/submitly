@@ -1,0 +1,107 @@
+---
+title: The ActionResult contract
+description: The one result shape every action resolves to, and how each field is used.
+---
+
+Every action resolves to an `ActionResult` (after `normalize`). It is the single contract between your transport
+(server action, `fetch`, RPC) and submitly's hooks.
+
+```ts
+type ActionResult<TData = unknown> = {
+  success: boolean;
+  message?: string; // passed to notify.success / notify.error when present
+  data?: TData;
+  errors?: string[]; // form-level errors, exposed as `serverErrors`
+  fieldErrors?: Record<string, string[]>; // keyed by dotted path, applied with form.setError
+  statusCode?: number;
+};
+```
+
+Only `success` is required, so `{ success: true }` is a valid result.
+
+## What each field does
+
+| Field | Used by | Effect |
+| --- | --- | --- |
+| `success` | Both hooks | Chooses the success path or the failure path. |
+| `message` | `notify` | When present, `notify.success` (on success) or `notify.error` (on failure) is called with the whole result. No `message`, no toast. |
+| `data` | Your callbacks | Passed through to `onSuccess` and `onError`, and to `redirectTo` when it is a function. Typed from the action's return type. |
+| `errors` | Both hooks | Form-level errors. They become `serverErrors`. |
+| `fieldErrors` | `useCrudForm` | Each entry is applied with `form.setError`, and the first one is focused. Ignored by `useCrudAction`, which has no fields. |
+| `statusCode` | You | Informational. `runAction` sets `422` for validation failures and `500` for unexpected errors; submitly itself never branches on it. |
+
+### Field errors
+
+`fieldErrors` is keyed by **dotted path**, the same format react-hook-form uses for field names:
+
+```ts
+{
+  success: false,
+  message: "Could not save the product",
+  fieldErrors: {
+    name: ["A product with this name already exists"],
+    "items.0.sku": ["SKU is required"],
+  },
+}
+```
+
+For each key, `useCrudForm` calls `form.setError(name, { type: "server", message, types })`. `message` is the first
+string; `types` holds all of them, indexed by position (`"0"`, `"1"`, ...), so you can render every message if you want.
+An entry with an empty key, or an empty list, has no field to attach to: its messages are added to `serverErrors`
+instead (empty lists are skipped).
+
+Like any react-hook-form error set with `setError`, a server error stays until the field is validated again (by default, on the next change after a submit) or you clear it with `form.clearErrors`.
+
+## Returning results
+
+An action can return an `ActionResult` directly:
+
+```ts
+async function saveProduct(values: ProductValues) {
+  const response = await fetch("/api/products", { method: "POST", body: JSON.stringify(values) });
+
+  if (!response.ok) {
+    const body = await response.json();
+    return { success: false, message: body.message, fieldErrors: body.fieldErrors };
+  }
+
+  return { success: true, message: "Saved", data: await response.json() };
+}
+```
+
+Or it can return anything else. With the default `normalize`:
+
+| Action returns | Becomes |
+| --- | --- |
+| An object with a boolean `success` | Passed through unchanged. |
+| `undefined` (a void action) | `{ success: true }` |
+| Any other value, `null` included | `{ success: true, data: value }` |
+
+An action that **throws** is handled by `mapError`. The default turns an `Error` (or a thrown string) into
+`{ success: false, message, errors: [message] }`, so the failure is never silent even without a toast library. Any other
+thrown value becomes a bare `{ success: false }` with no message.
+
+Adapt other response shapes with `normalize` and other error types with `mapError`, once in the
+[provider](/docs/concepts/provider) or per call. See [Axios `mapError`](/docs/recipes/axios) and
+[Custom API shape](/docs/recipes/custom-api-shape).
+
+## Related types and helpers
+
+`submitly` exports the pieces that implement this contract, so you can reuse them in your own adapters:
+
+| Export | Purpose |
+| --- | --- |
+| `ActionResult<TData>` | The type above. |
+| `FieldErrorMap` | `Record<string, string[]>`. |
+| `Normalize`, `MapError` | Function types for the `normalize` and `mapError` options. |
+| `isActionResult(value)` | The check the default `normalize` uses: an object with a boolean `success`. |
+| `defaultNormalize`, `defaultMapError` | The built-in behaviours, handy as a fallback inside your own adapter. |
+| `InferResultData<TResult>` | Extracts `TData` from an action's return type. |
+
+See the [API reference](/docs/reference/submitly#actionresult) for details.
+
+<Callout type="warn">
+  The `submitly` entry point is a client module. In a Next.js app, call these helpers from client code only. Server
+  code (server actions, route handlers) can import types from `submitly`, but calling a function such as
+  `defaultMapError` there fails with "Attempted to call ... from the server".
+</Callout>

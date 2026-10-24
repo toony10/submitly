@@ -1,0 +1,429 @@
+---
+title: Add, edit and delete an entity
+description: The full CRUD flow for one entity in Next.js, with a dialog that remounts on open and locks while saving.
+---
+
+This recipe builds the complete add / edit / delete flow for a `Product` entity. The other recipes build on its files, so
+read this one first. It uses Next.js server actions; to use the same components in a Vite app, swap the actions for
+API-client calls and the provider for the one in the [Vite quick start](/docs/quick-start-vite).
+
+```
+lib/schema.ts            one schema, used by the form and by runAction
+lib/db.ts                a stand-in data layer
+app/actions.ts           server actions built with runAction
+components/form-dialog.tsx   the dialog owner (native <dialog>, swappable)
+components/product-form.tsx  one form for add and edit
+components/delete-dialog.tsx a confirm dialog built on useCrudAction
+components/products-table.tsx  the list, with one dialog per row
+app/products/page.tsx    the page (a Server Component)
+```
+
+It assumes the provider from the [Next.js quick start](/docs/quick-start-next) is mounted.
+
+## The schema
+
+The same schema validates in the browser (`useCrudForm`) and on the server (`runAction`), so it has to accept its own
+output: see [Schema idempotency](/docs/concepts/schema-idempotency). `optionalText` is the idiomatic way to write an
+optional text field: a blank input becomes `undefined`, so JSON bodies omit the key.
+
+```ts title="lib/schema.ts"
+import { z } from "zod";
+
+/** Optional text: blank or whitespace-only input becomes undefined. Accepts its own output. */
+export function optionalText(schema: z.ZodString) {
+  return z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => value || undefined)
+    .pipe(schema.optional());
+}
+
+export const productSchema = z.object({
+  name: z.string().trim().min(2, "Name must be at least 2 characters"),
+  price: z.coerce.number<string>().positive("Price must be positive"),
+  sku: optionalText(z.string().max(12, "SKU is at most 12 characters")),
+});
+
+export const productUpdateSchema = productSchema.extend({ id: z.number().int() });
+
+export type ProductInput = z.input<typeof productSchema>;
+```
+
+```ts title="lib/db.ts"
+export type Product = { id: number; name: string; price: number; sku?: string };
+
+export class DuplicateNameError extends Error {}
+
+const globalForDb = globalThis as unknown as { products?: Product[]; nextId?: number };
+
+globalForDb.products ??= [
+  { id: 1, name: "Desk lamp", price: 29, sku: "LMP-01" },
+  { id: 2, name: "Notebook", price: 6 },
+];
+globalForDb.nextId ??= 3;
+
+function assertUnique(name: string, exceptId?: number) {
+  if (globalForDb.products!.some((p) => p.name === name && p.id !== exceptId)) {
+    throw new DuplicateNameError(name);
+  }
+}
+
+export const db = {
+  list: (): Product[] => globalForDb.products!,
+  get: (id: number) => globalForDb.products!.find((p) => p.id === id),
+  add(data: Omit<Product, "id">): Product {
+    assertUnique(data.name);
+    const product = { id: globalForDb.nextId!++, ...data };
+    globalForDb.products!.push(product);
+    return product;
+  },
+  update({ id, ...data }: Product): Product {
+    assertUnique(data.name, id);
+    const product = { id, ...data };
+    globalForDb.products = globalForDb.products!.map((p) => (p.id === id ? product : p));
+    return product;
+  },
+  remove(id: number) {
+    globalForDb.products = globalForDb.products!.filter((p) => p.id !== id);
+  },
+};
+```
+
+## The server actions
+
+Each action validates its argument, runs the handler and revalidates the list. A duplicate name is an **expected**
+failure, so the handler returns it as a result with a `fieldErrors` entry. A thrown error (the database is down) is
+caught by `runAction` and becomes a 500 result.
+
+```ts title="app/actions.ts"
+"use server";
+
+import { runAction } from "submitly/next/server";
+import { z } from "zod";
+
+import { DuplicateNameError, db } from "@/lib/db";
+import { productSchema, productUpdateSchema } from "@/lib/schema";
+
+const duplicateName = () => ({
+  success: false,
+  message: "Could not save the product",
+  fieldErrors: { name: ["A product with this name already exists"] },
+});
+
+export async function createProduct(input: unknown) {
+  return runAction({
+    schema: productSchema,
+    input,
+    handler: (data) => {
+      try {
+        const product = db.add(data);
+        return { success: true, message: `Created "${product.name}"`, data: product };
+      } catch (error) {
+        if (error instanceof DuplicateNameError) return duplicateName();
+        throw error;
+      }
+    },
+    revalidate: { paths: ["/products"] },
+  });
+}
+
+export async function updateProduct(input: unknown) {
+  return runAction({
+    schema: productUpdateSchema,
+    input,
+    handler: (data) => {
+      try {
+        const product = db.update(data);
+        return { success: true, message: `Updated "${product.name}"`, data: product };
+      } catch (error) {
+        if (error instanceof DuplicateNameError) return duplicateName();
+        throw error;
+      }
+    },
+    revalidate: { paths: ["/products"] },
+  });
+}
+
+export async function deleteProduct(id: unknown) {
+  return runAction({
+    schema: z.number().int(),
+    input: id,
+    handler: (productId) => {
+      db.remove(productId);
+      return { success: true, message: "Product deleted" };
+    },
+    revalidate: { paths: ["/products"] },
+  });
+}
+```
+
+## The dialog
+
+A dialog that **remounts its form on every open** and **cannot be closed mid-save** needs three pieces, all headless:
+`useControllableDialog` (open state and `openKey`), `useDialogLockScope` (the lock) and `DialogLockProvider` (hands the
+lock to the hooks below). This one wraps a native `<dialog>`; [Dialogs](/docs/recipes/dialogs) has the same component for
+Radix, Base UI and Headless UI, with the same props, so you can swap it without touching anything else.
+
+```tsx title="components/form-dialog.tsx"
+"use client";
+
+import { useEffect, useRef, type ReactNode } from "react";
+import { DialogLockProvider, useControllableDialog, useDialogLockScope } from "submitly";
+
+export type FormDialogProps = {
+  title: string;
+  /** Render the element that opens the dialog. */
+  trigger?: (open: () => void) => ReactNode;
+  /** Controlled mode. Leave both undefined for an uncontrolled dialog. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** `formKey` changes on every open: pass it as the `key` of the form inside. */
+  children: (props: { formKey: number; onClose: () => void }) => ReactNode;
+};
+
+export function FormDialog({ title, trigger, open, onOpenChange, children }: FormDialogProps) {
+  const lock = useDialogLockScope();
+  const dialog = useControllableDialog({ open, onOpenChange, locked: lock.isLocked });
+  const ref = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const element = ref.current;
+
+    if (dialog.open && !element?.open) element?.showModal();
+    if (!dialog.open && element?.open) element.close();
+  }, [dialog.open]);
+
+  const close = () => dialog.setOpen(false);
+
+  return (
+    <>
+      {trigger?.(() => dialog.setOpen(true))}
+      <dialog
+        ref={ref}
+        aria-labelledby="form-dialog-title"
+        aria-busy={lock.locked || undefined}
+        // Escape: route it through setOpen, which ignores it while locked.
+        onCancel={(event) => {
+          event.preventDefault();
+          close();
+        }}
+        // Backdrop click.
+        onClick={(event) => {
+          if (event.target === event.currentTarget) close();
+        }}
+      >
+        {dialog.open ? (
+          <div>
+            <h2 id="form-dialog-title">{title}</h2>
+            <button type="button" onClick={close} disabled={lock.locked} aria-label="Close">
+              x
+            </button>
+            <DialogLockProvider scope={lock.scope}>
+              {children({ formKey: dialog.openKey, onClose: close })}
+            </DialogLockProvider>
+          </div>
+        ) : null}
+      </dialog>
+    </>
+  );
+}
+```
+
+## One form for add and edit
+
+When the fields overlap, add and edit share one form. Pass the entity to edit, omit it to create. The form resets to its
+`defaultValues` after success, so a create form is ready for the next entry; for edit, the dialog's `onClose` closes it.
+
+```tsx title="components/product-form.tsx"
+"use client";
+
+import { useCrudForm } from "submitly";
+
+import { createProduct, updateProduct } from "@/app/actions";
+import type { Product } from "@/lib/db";
+import { productSchema, type ProductInput } from "@/lib/schema";
+
+const empty: ProductInput = { name: "", price: "", sku: "" };
+
+function toFormValues(product: Product): ProductInput {
+  return { name: product.name, price: String(product.price), sku: product.sku ?? "" };
+}
+
+export function ProductForm({ product, onDone }: { product?: Product; onDone?: () => void }) {
+  const { form, onSubmit, serverErrors, isSubmitting } = useCrudForm({
+    schema: productSchema,
+    defaultValues: product ? toFormValues(product) : empty,
+    action: (values) => (product ? updateProduct({ ...values, id: product.id }) : createProduct(values)),
+    onSuccess: () => onDone?.(),
+  });
+
+  const { errors } = form.formState;
+
+  return (
+    <form onSubmit={onSubmit} noValidate>
+      {serverErrors.length > 0 && (
+        <ul role="alert">
+          {serverErrors.map((message, index) => (
+            <li key={index}>{message}</li>
+          ))}
+        </ul>
+      )}
+
+      <label>
+        Name
+        <input autoComplete="off" {...form.register("name")} />
+      </label>
+      {errors.name && <p>{errors.name.message}</p>}
+
+      <label>
+        Price
+        <input inputMode="decimal" {...form.register("price")} />
+      </label>
+      {errors.price && <p>{errors.price.message}</p>}
+
+      <label>
+        SKU (optional)
+        <input autoComplete="off" {...form.register("sku")} />
+      </label>
+      {errors.sku && <p>{errors.sku.message}</p>}
+
+      <button type="submit" disabled={isSubmitting}>
+        {isSubmitting ? "Saving..." : product ? "Save changes" : "Create product"}
+      </button>
+    </form>
+  );
+}
+```
+
+## Delete, with a confirmation that closes on success only
+
+`useCrudAction` gives a confirm dialog the same conventions as a form. Closing happens in `onSuccess`, so a failed
+delete keeps the dialog open and shows the server errors; while the request runs, the dialog is locked.
+
+```tsx title="components/delete-dialog.tsx"
+"use client";
+
+import { useCrudAction } from "submitly";
+
+import { deleteProduct } from "@/app/actions";
+import type { Product } from "@/lib/db";
+
+import { FormDialog } from "./form-dialog";
+
+function ConfirmDelete({ product, onClose }: { product: Product; onClose: () => void }) {
+  const { execute, isPending, serverErrors } = useCrudAction({
+    action: () => deleteProduct(product.id),
+    onSuccess: onClose,
+  });
+
+  return (
+    <div>
+      {serverErrors.map((message, index) => (
+        <p key={index} role="alert">
+          {message}
+        </p>
+      ))}
+      <p>This cannot be undone.</p>
+      <button type="button" onClick={onClose} disabled={isPending}>
+        Cancel
+      </button>
+      <button type="button" onClick={() => execute()} disabled={isPending}>
+        {isPending ? "Deleting..." : "Delete"}
+      </button>
+    </div>
+  );
+}
+
+export function DeleteDialog({ product }: { product: Product }) {
+  return (
+    <FormDialog
+      title={`Delete "${product.name}"?`}
+      trigger={(open) => (
+        <button type="button" onClick={open}>
+          Delete
+        </button>
+      )}
+    >
+      {({ onClose }) => <ConfirmDelete product={product} onClose={onClose} />}
+    </FormDialog>
+  );
+}
+```
+
+## The list
+
+The page is a Server Component that reads the data. Everything that takes a render prop (`FormDialog`'s `trigger` and
+children) has to live in a client component, because functions cannot be passed from a Server Component to a Client
+Component. So the table is a client component that receives the rows as a prop.
+
+```tsx title="components/products-table.tsx"
+"use client";
+
+import type { Product } from "@/lib/db";
+
+import { DeleteDialog } from "./delete-dialog";
+import { FormDialog } from "./form-dialog";
+import { ProductForm } from "./product-form";
+
+export function ProductsTable({ products }: { products: Product[] }) {
+  return (
+    <>
+      <FormDialog
+        title="New product"
+        trigger={(open) => (
+          <button type="button" onClick={open}>
+            Add product
+          </button>
+        )}
+      >
+        {({ formKey, onClose }) => <ProductForm key={formKey} onDone={onClose} />}
+      </FormDialog>
+
+      <table>
+        <tbody>
+          {products.map((product) => (
+            <tr key={product.id}>
+              <td>{product.name}</td>
+              <td>${product.price}</td>
+              <td>
+                <FormDialog
+                  title={`Edit "${product.name}"`}
+                  trigger={(open) => (
+                    <button type="button" onClick={open}>
+                      Edit
+                    </button>
+                  )}
+                >
+                  {({ formKey, onClose }) => <ProductForm key={formKey} product={product} onDone={onClose} />}
+                </FormDialog>
+                <DeleteDialog product={product} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  );
+}
+```
+
+```tsx title="app/products/page.tsx"
+import { ProductsTable } from "@/components/products-table";
+import { db } from "@/lib/db";
+
+export default function ProductsPage() {
+  return (
+    <main>
+      <h1>Products</h1>
+      <ProductsTable products={db.list()} />
+    </main>
+  );
+}
+```
+
+`formKey` changes every time a dialog opens, so each open mounts a fresh `ProductForm` with fresh default values: no
+stale input and no leftover server errors from the last time. Create a product, edit it, delete it: each mutation
+revalidates `/products`, so the table updates without a client-side refetch.
+
+This layout renders one dialog per row. For long tables, use [one shared edit dialog](/docs/recipes/shared-edit-dialog).

@@ -1,0 +1,14 @@
+{
+  "title": "Recipes",
+  "pages": [
+    "add-edit-delete",
+    "shared-edit-dialog",
+    "bulk-delete",
+    "detail-page-redirect",
+    "full-page-form",
+    "i18n",
+    "axios",
+    "custom-api-shape",
+    "dialogs"
+  ]
+}

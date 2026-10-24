@@ -1,0 +1,100 @@
+---
+title: Introduction
+description: submitly is the headless submission layer for React and Next.js forms, dialogs and mutations.
+---
+
+`submitly` is a **headless form submission layer** for React and Next.js. It sits on top of
+[react-hook-form](https://react-hook-form.com) and adds everything that happens between "the user pressed Save"
+and "the screen is up to date again":
+
+- **Standard Schema validation** on the client (Zod 3.24+ / 4, Valibot 1, ArkType 2, ...).
+- **A typed action** that is any `(input) => Promise<result>`: a server action, a `fetch` wrapper, an RPC call.
+- **Server errors mapped to fields.** A failed result carries `fieldErrors` keyed by path, applied with
+  `form.setError`, plus form-level `errors` exposed as `serverErrors`.
+- **Pending and dialog locks.** Double submits are ignored, and the surrounding dialog cannot be closed (escape,
+  overlay click, close button) while a save is in flight.
+- **Post-mutation conventions.** Toast, refresh, reset the form, redirect: wired once in a provider, overridable per call.
+- **A server half for Next.js.** `runAction` re-validates input with the same schema, revalidates paths and tags on
+  success, and turns thrown errors into a failed result instead of a crashed request.
+
+It renders nothing and imports no toast library, router or i18n library, so it works with plain elements, shadcn,
+Radix, Base UI, Headless UI, or a native `<dialog>`.
+
+## What it is not
+
+- **Not a form library.** Field state, registration and rendering stay with react-hook-form.
+- **Not a UI kit.** There are no inputs, dialogs, buttons or error panels. Bring your own components.
+- **Not an API client or auth layer.** Transport, tokens and retries are yours. An action is just a function.
+- **Not a state-management or caching layer.** Use TanStack Query, SWR or the Next.js cache for that;
+  submitly only tells them when a mutation succeeded.
+- **Not localized.** The package has no visible strings of its own. Your components and your `runAction` `messages`
+  carry the user-facing copy in whatever language you ship.
+
+<Callout type="info">
+  submitly is pre-release (`0.x`). The API can still change before 1.0. TypeScript 5.4 or newer is required for consumers.
+</Callout>
+
+## How it compares
+
+### Versus hand-rolled react-hook-form and try/catch
+
+Every app that submits forms with react-hook-form ends up writing the same 40 lines in each form. submitly is those
+40 lines, written once and tested.
+
+| Concern | Hand-rolled RHF + try/catch | submitly |
+| --- | --- | --- |
+| Schema resolver | Pick and wire a resolver per schema library | Any Standard Schema, no resolver to choose |
+| Submit handler | `handleSubmit` + `try` / `catch` / `finally` in every form | `useCrudForm({ schema, action })` |
+| Thrown errors (network, 500) | Easy to forget; an unhandled rejection or a stuck spinner | `mapError`, set once; the returned promise never rejects |
+| Server field errors | Loop over the response and call `setError` yourself | `fieldErrors` keyed by dotted path are applied for you, first field focused |
+| Form-level server errors | Your own `useState` | `serverErrors` |
+| Double submit | A ref or `disabled` flag, per form | Built in for forms and for `useCrudAction` |
+| Toast on result | `toast.*` calls scattered in every handler | One `notify` in the provider, per-call override |
+| Refresh after success | `router.refresh()` / `invalidateQueries()` per handler | `onMutated` in the provider |
+| Reset after success | `form.reset()` by hand | `resetOnSuccess` (default on) |
+| Redirect after success | `router.push()` by hand | `redirectTo` through the provider's `navigate` |
+| Dialog closes mid-save | Manual guard around every close path | Automatic dialog lock |
+| Form keeps stale values after reopening a dialog | Manual `key` bookkeeping | `useControllableDialog().openKey` |
+| Non-form mutation (delete, toggle) | Another bespoke hook | `useCrudAction` with the same conventions |
+| Server action validation | Parse input, catch, `revalidatePath`, map errors | `runAction` |
+
+### Versus next-safe-action
+
+[next-safe-action](https://next-safe-action.dev) and similar libraries (zsa, tRPC) define **how a server action is
+built and called**: middleware, typed inputs and outputs, server errors. submitly defines **what the form and the UI do
+with the result**. They are complementary, not competing: their action, our hooks.
+
+| Concern | next-safe-action | submitly |
+| --- | --- | --- |
+| Typed server action with middleware and context | Yes | No (`runAction` is a thin validate-and-revalidate wrapper) |
+| Works outside Next.js | No | Yes (`submitly` is plain React) |
+| Form state on top of react-hook-form | Through its hooks and an optional adapter | `useCrudForm` |
+| Dialog lock, form remount on open | No | Yes |
+| Non-form mutation with notify, refresh and redirect conventions | Per-hook callbacks | `useCrudAction`, conventions set once in a provider |
+| One provider for toast, refresh and navigation | No | Yes |
+
+If you already use next-safe-action, keep it. Pass the safe action to `useCrudForm` as the `action` and teach submitly
+its result shape with `normalize`. [Custom API shape](/docs/recipes/custom-api-shape) shows how.
+
+## Where to go next
+
+<Cards>
+  <Card title="Installation" href="/docs/installation">
+    Packages, peer dependencies and supported schema libraries.
+  </Card>
+  <Card title="Quick start: Next.js" href="/docs/quick-start-next">
+    A server action, a form and a delete button in the App Router.
+  </Card>
+  <Card title="Quick start: Vite" href="/docs/quick-start-vite">
+    React Router, TanStack Query and an API client with its own error type.
+  </Card>
+  <Card title="Concepts" href="/docs/concepts/action-result">
+    The result contract, the provider, the submit lifecycle and the dialog lock.
+  </Card>
+  <Card title="Recipes" href="/docs/recipes/add-edit-delete">
+    CRUD, shared edit dialogs, bulk delete, i18n, axios and dialog libraries.
+  </Card>
+  <Card title="API reference" href="/docs/reference/submitly">
+    Every export of `submitly`, `submitly/next` and `submitly/next/server`.
+  </Card>
+</Cards>

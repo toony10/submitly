@@ -1,0 +1,119 @@
+---
+title: Full-page form
+description: A create or edit form on its own route, with no dialog.
+---
+
+Not every form belongs in a dialog. A dedicated route suits long forms, and gives users a URL they can share and return to.
+`useCrudForm` does not care where it renders: without a `DialogLockProvider` above it, the dialog lock is simply a no-op.
+
+This recipe uses the actions from [Add, edit and delete an entity](/docs/recipes/add-edit-delete).
+
+## A form for create and edit
+
+```tsx title="components/product-page-form.tsx"
+"use client";
+
+import { useCrudForm } from "submitly";
+
+import { createProduct, updateProduct } from "@/app/actions";
+import type { Product } from "@/lib/db";
+import { productSchema, type ProductInput } from "@/lib/schema";
+
+function toFormValues(product: Product): ProductInput {
+  return { name: product.name, price: String(product.price), sku: product.sku ?? "" };
+}
+
+export function ProductPageForm({ product }: { product?: Product }) {
+  const { form, onSubmit, serverErrors, isSubmitting } = useCrudForm({
+    schema: productSchema,
+    defaultValues: product ? toFormValues(product) : { name: "", price: "", sku: "" },
+    action: (values) => (product ? updateProduct({ ...values, id: product.id }) : createProduct(values)),
+    // Land on the saved entity's page. The page is about to change, so do not reset.
+    redirectTo: (result) => (result.data ? `/products/${result.data.id}` : null),
+    resetOnSuccess: false,
+    // Validate each field when the user leaves it, instead of only on submit.
+    formOptions: { mode: "onBlur" },
+  });
+
+  const { errors, isDirty } = form.formState;
+
+  return (
+    <form onSubmit={onSubmit} noValidate>
+      {serverErrors.length > 0 && (
+        <ul role="alert">
+          {serverErrors.map((message, index) => (
+            <li key={index}>{message}</li>
+          ))}
+        </ul>
+      )}
+
+      <label>
+        Name
+        <input autoComplete="off" {...form.register("name")} />
+      </label>
+      {errors.name && <p>{errors.name.message}</p>}
+
+      <label>
+        Price
+        <input inputMode="decimal" {...form.register("price")} />
+      </label>
+      {errors.price && <p>{errors.price.message}</p>}
+
+      <button type="submit" disabled={isSubmitting || (Boolean(product) && !isDirty)}>
+        {isSubmitting ? "Saving..." : "Save"}
+      </button>
+    </form>
+  );
+}
+```
+
+## The routes
+
+The create page renders the form with no entity. The edit page loads the entity on the server and passes it down. Give
+the form a `key` so that navigating between two products remounts it with the new values: react-hook-form reads
+`defaultValues` once, on mount.
+
+```tsx title="app/products/new/page.tsx"
+import { ProductPageForm } from "@/components/product-page-form";
+
+export default function NewProductPage() {
+  return (
+    <main>
+      <h1>New product</h1>
+      <ProductPageForm />
+    </main>
+  );
+}
+```
+
+```tsx title="app/products/[id]/edit/page.tsx"
+import { notFound } from "next/navigation";
+
+import { ProductPageForm } from "@/components/product-page-form";
+import { db } from "@/lib/db";
+
+export default async function EditProductPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const product = db.get(Number(id));
+
+  if (!product) notFound();
+
+  return (
+    <main>
+      <h1>Edit {product.name}</h1>
+      <ProductPageForm key={product.id} product={product} />
+    </main>
+  );
+}
+```
+
+## Notes
+
+- **Server errors.** Field errors from the server (a duplicate name) appear on the field, and form-level `errors` in the
+  alert list, exactly as in a dialog.
+- **After a save.** `redirectTo` runs after the success toast and `onMutated`. Skip the redirect (omit `redirectTo`)
+  to stay on the page; keep `resetOnSuccess` at its default `true` to clear a create form for the next entry, or set it
+  to `false` to keep the saved values on screen after an edit.
+- **Leaving with unsaved changes.** `form.formState.isDirty` tells you when the form has unsaved edits. Use it with your
+  router's blocking API or a `beforeunload` handler if you need a "discard changes?" prompt; submitly does not handle
+  navigation guards.

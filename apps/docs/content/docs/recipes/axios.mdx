@@ -1,0 +1,134 @@
+---
+title: Axios mapError
+description: Turn axios errors into ActionResults so HTTP failures become toasts, form errors and field errors.
+---
+
+axios **rejects** for every non-2xx response. submitly's `mapError` is the single place where a thrown error becomes an
+[`ActionResult`](/docs/concepts/action-result), so one adapter makes every axios call behave.
+
+## The adapter
+
+This one assumes the API answers errors with a JSON body like
+`{ "message": "...", "errors": ["..."], "fieldErrors": { "name": ["..."] } }`. Adjust the three reads to your API's shape.
+
+```ts title="src/lib/axios-error.ts"
+import axios from "axios";
+import { defaultMapError, type ActionResult } from "submitly";
+
+type ErrorBody = {
+  message?: string;
+  errors?: string[];
+  fieldErrors?: Record<string, string[]>;
+};
+
+export function fromAxiosError(error: unknown): ActionResult {
+  if (!axios.isAxiosError<ErrorBody>(error)) {
+    // Not an axios error: the built-in mapping.
+    return defaultMapError(error);
+  }
+
+  // The server answered with an error status.
+  if (error.response) {
+    const { status, data } = error.response;
+    const message = data?.message ?? error.message;
+
+    return {
+      success: false,
+      statusCode: status,
+      message,
+      errors: data?.errors ?? (data?.fieldErrors ? [] : [message]),
+      fieldErrors: data?.fieldErrors,
+    };
+  }
+
+  // No response: the request never got an answer (offline, DNS, CORS, timeout).
+  return {
+    success: false,
+    message: "Network error. Check your connection and try again.",
+    errors: ["Network error. Check your connection and try again."],
+  };
+}
+```
+
+## The client
+
+```ts title="src/lib/http.ts"
+import axios from "axios";
+
+export const http = axios.create({ baseURL: "/api" });
+```
+
+## Wire it once
+
+Put the adapter in the provider. Also treat **cancelled** requests as interrupts: when a component unmounts and aborts its
+request, nobody wants an error toast.
+
+```tsx title="src/crud-provider.tsx"
+import axios from "axios";
+import type { ReactNode } from "react";
+import { toast } from "sonner";
+import { CrudProvider } from "submitly";
+
+import { fromAxiosError } from "./lib/axios-error";
+
+export function AppCrudProvider({ children }: { children: ReactNode }) {
+  return (
+    <CrudProvider
+      notify={{
+        success: (result) => toast.success(result.message),
+        error: (result) => toast.error(result.message),
+      }}
+      mapError={fromAxiosError}
+      isInterrupt={axios.isCancel}
+    >
+      {children}
+    </CrudProvider>
+  );
+}
+```
+
+## Use it
+
+No `try` / `catch` in the action: a rejection is mapped for you.
+
+```tsx title="src/product-form.tsx"
+import { useCrudForm } from "submitly";
+
+import { http } from "./lib/http";
+import { productSchema } from "./lib/schema";
+
+export function ProductForm() {
+  const { form, onSubmit, serverErrors } = useCrudForm({
+    schema: productSchema,
+    defaultValues: { name: "", price: "" },
+    action: async (values) => {
+      const { data } = await http.post<{ id: number }>("/products", values);
+      return { success: true, message: "Product created", data };
+    },
+  });
+
+  // ... render the form
+  return (
+    <form onSubmit={onSubmit} noValidate>
+      {serverErrors.map((message, index) => (
+        <p key={index} role="alert">
+          {message}
+        </p>
+      ))}
+      <input {...form.register("name")} />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+```
+
+A `422` with `fieldErrors` lights up the matching fields; a `500` or a network failure shows the error toast and keeps
+the form editable.
+
+## Variations
+
+- **Per call.** Pass `mapError` to a single hook to override the provider for one legacy endpoint.
+- **Interceptors.** If you already normalize errors in an axios response interceptor, throw your own error type from
+  there and adapt that type in `mapError`, as in the [Vite quick start](/docs/quick-start-vite).
+- **Success envelopes.** If successful responses are wrapped too (`{ ok, data }`), adapt them with
+  [`normalize`](/docs/recipes/custom-api-shape).

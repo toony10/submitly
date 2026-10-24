@@ -1,0 +1,99 @@
+---
+title: One shared edit dialog for a table
+description: Render a single controlled dialog for every row instead of one dialog per row.
+---
+
+A table with 500 rows and one edit dialog each mounts 500 dialogs. With a **controlled** dialog you render one, and the
+rows only say which entity is being edited.
+
+This recipe replaces `components/products-table.tsx` from [Add, edit and delete an entity](/docs/recipes/add-edit-delete),
+and reuses its `FormDialog` and `ProductForm`.
+
+```tsx title="components/products-table.tsx"
+"use client";
+
+import { useState } from "react";
+
+import type { Product } from "@/lib/db";
+
+import { FormDialog } from "./form-dialog";
+import { ProductForm } from "./product-form";
+
+export function ProductsTable({ products }: { products: Product[] }) {
+  const [editing, setEditing] = useState<Product | null>(null);
+  const [open, setOpen] = useState(false);
+
+  function edit(product: Product) {
+    setEditing(product);
+    setOpen(true);
+  }
+
+  return (
+    <>
+      <table>
+        <tbody>
+          {products.map((product) => (
+            <tr key={product.id}>
+              <td>{product.name}</td>
+              <td>${product.price}</td>
+              <td>
+                <button type="button" onClick={() => edit(product)}>
+                  Edit
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* One dialog for every row. */}
+      <FormDialog title={`Edit "${editing?.name ?? ""}"`} open={open} onOpenChange={setOpen}>
+        {({ formKey, onClose }) =>
+          editing ? <ProductForm key={formKey} product={editing} onDone={onClose} /> : null
+        }
+      </FormDialog>
+    </>
+  );
+}
+```
+
+## How it works
+
+- `open` and `onOpenChange` make the dialog **controlled**: the table owns the state, and `useControllableDialog` inside
+  `FormDialog` only forwards requested changes. While a save is in flight, `setOpen(false)` (escape, overlay, the close
+  button) is ignored, so `onOpenChange` is not even called, and `open` stays `true`.
+- `formKey` increments on every closed-to-open transition, **including controlled ones**. Clicking Edit on row 7 after
+  row 3 therefore mounts a fresh `ProductForm` with row 7's values, and never shows row 3's input or errors.
+- `editing` is kept after the dialog closes, so a closing animation (with a dialog library that has one) still has
+  content to show. Clear it if you prefer.
+
+## Row actions without extra dialogs
+
+The same state can drive other row actions. For example, make delete a `useCrudAction` in the row:
+
+```tsx
+function DeleteButton({ id }: { id: number }) {
+  const { execute, isPending } = useCrudAction({ action: () => deleteProduct(id) });
+
+  return (
+    <button type="button" disabled={isPending} onClick={() => execute()}>
+      Delete
+    </button>
+  );
+}
+```
+
+`useCrudAction` outside a dialog locks nothing, which is exactly right for an inline button.
+
+## Loading the dialog lazily
+
+For heavy forms (rich text, file pickers), load the dialog only when it is first needed. In Next.js:
+
+```tsx
+import dynamic from "next/dynamic";
+
+const ProductEditDialog = dynamic(() => import("./product-edit-dialog"));
+```
+
+Render `ProductEditDialog` only once `open` has been `true` at least once, so the code is not downloaded for users who never
+click Edit.

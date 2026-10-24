@@ -26,6 +26,8 @@ jobs:
         run: pnpm typecheck
       - name: Test
         run: pnpm test
+      - name: Test (React 18)
+        run: pnpm react18
       - name: Build
         run: pnpm build
       - name: publint + attw

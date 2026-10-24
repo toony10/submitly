@@ -203,7 +203,7 @@ export async function saveProduct(input: unknown) {
 | --- | --- | --- |
 | `react` | `>=18.2` | `useId`, `useSyncExternalStore` |
 | `react-hook-form` | `^7.55` | peer |
-| `@hookform/resolvers` | `^5` | `standardSchemaResolver` |
+| `@hookform/resolvers` | not needed | a small internal Standard Schema resolver replaces `standardSchemaResolver` (no extra peer) |
 | Schema libs | Zod 3.24+, Zod 4, Valibot 1, ArkType 2 | via Standard Schema, no direct dependency |
 | `next` | `>=15` | optional peer, only for `/next*` entries |
 

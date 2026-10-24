@@ -24,11 +24,3 @@ a Server Component to check that the `"use client"` boundary survives the
 build.
 
 Data is kept in memory (`lib/store.ts`) and resets when the server restarts.
-
-## Why `--webpack`
-
-Inside this pnpm workspace, Turbopack (Next 16.4) fails to resolve
-`@hookform/resolvers/standard-schema` from the linked `submitly` package, while
-webpack and Node resolve it fine. A packed `submitly` tarball installed into a
-standalone Next 16 app builds and prerenders with Turbopack, so this only
-affects the workspace link.

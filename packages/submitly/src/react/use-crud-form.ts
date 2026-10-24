@@ -1,6 +1,5 @@
 "use client";
 
-import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { useCallback, useRef, useState, type BaseSyntheticEvent } from "react";
 import {
@@ -22,6 +21,7 @@ import {
   type MutationOptions,
 } from "./mutation";
 import { useCrudConfig } from "./provider";
+import { standardSchemaResolver } from "./standard-schema-resolver";
 import { useLatest } from "./use-latest";
 
 export type UseCrudFormOptions<

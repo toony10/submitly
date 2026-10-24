@@ -1,6 +1,6 @@
 {
   "name": "submitly",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Headless form submission for React and Next.js: Standard Schema validation, typed actions, server errors mapped to fields, pending/dialog locks and post-mutation refresh. Works with any UI.",
   "keywords": [
     "react",
@@ -21,7 +21,7 @@
     "name": "Anton Amir",
     "url": "https://anton-web-portfolio.vercel.app/"
   },
-  "homepage": "https://github.com/toony10/submitly#readme",
+  "homepage": "https://submitly-docs.vercel.app/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/toony10/submitly.git",
@@ -34,6 +34,7 @@
   "sideEffects": false,
   "files": [
     "dist",
+    "CHANGELOG.md",
     "THIRD_PARTY_NOTICES.md"
   ],
   "exports": {
@@ -63,7 +64,8 @@
     "test:react18": "vitest run --config vitest.react18.config.ts",
     "typecheck:react18": "tsc -p tsconfig.react18.json",
     "check-exports": "publint --strict && attw --pack . --profile esm-only",
-    "size": "size-limit"
+    "size": "size-limit",
+    "prepublishOnly": "pnpm run build && pnpm run test && pnpm run check-exports"
   },
   "peerDependencies": {
     "next": ">=15.0.0",

@@ -1,0 +1,206 @@
+---
+title: Migrating from the tona-dashboard forms kit
+description: Map the old src/lib/forms kit (useCrudForm, useConfirmAction, FormDialog, runAction) to submitly.
+---
+
+submitly started as the `src/lib/forms` kit of the tona-dashboard starter. This guide maps that kit to the package, piece
+by piece, so a dashboard (or any app that copied the kit) can switch without rewriting its forms.
+
+## The mapping
+
+| Old (`@/lib/forms`) | New | Notes |
+| --- | --- | --- |
+| `useCrudForm` | `useCrudForm` from `submitly` | Same shape (`schema`, `defaultValues`, `action`, `onSuccess`, `resetOnSuccess`). The router and toast calls moved to the provider. |
+| `useConfirmAction` | `useCrudAction` | Same `execute`, `isPending`, `serverErrors`, `clearServerErrors`. `execute` is now stable, never rejects, and ignores double calls. |
+| `useControllableDialog(open, onOpenChange)` | `useControllableDialog({ open, onOpenChange, locked })` | Options object. Adds `openKey`, `isControlled` and the lock. |
+| `FormDialog` | Your own thin component over `useControllableDialog` | The package ships no UI. See [Dialogs](/docs/recipes/dialogs). |
+| `ConfirmDialog` | Your own component over `useCrudAction` | See [Add, edit and delete](/docs/recipes/add-edit-delete#delete-with-a-confirmation-that-closes-on-success-only). |
+| `FormDialog`'s `isPending` prop | Automatic dialog lock | The prop was never wired to the form. Now `useCrudForm` locks the dialog itself. |
+| `Form`, `FormField`, `FormItem`, `FormLabel`, `FormControl`, `FormDescription`, `FormMessage`, `useFormField` | Keep in your app | These are shadcn react-hook-form components. They keep working with `form` from `useCrudForm`. |
+| `FormErrors`, `SubmitButton` | Keep in your app | Bind them to `serverErrors` and `isSubmitting` / `isPending`. |
+| `CrudDialogProps` | Your own type | Part of the dialog components that moved to your app. |
+| `ActionResult` | `ActionResult` from `submitly` | `statusCode` and `message` are optional; `TData` defaults to `unknown`; adds `fieldErrors`. |
+| `runAction` from `@/lib/forms/server` | `runAction` from `submitly/next/server` | See [`runAction`](#runaction). |
+| `optionalString` (zod only) | `optionalText`, a recipe | See [Add, edit and delete](/docs/recipes/add-edit-delete#the-schema). |
+| `useRouterWithTopLoader` | Your `navigate` in the provider | See [the provider](#add-the-provider). |
+| `sonner` toasts inside the hooks | `notify` in the provider | |
+| `useTranslations("Crud")` inside the dialog components | Your own components and `runAction`'s `messages` | See [i18n](/docs/recipes/i18n). |
+| `ApiResponse` imported by `runAction` | Nothing | `ApiResponse` is already `ActionResult`-shaped, so it passes through unchanged. |
+
+## Step by step
+
+<Steps>
+<Step>
+
+### Install
+
+```npm
+npm i submitly
+```
+
+`react-hook-form` and your schema library are already dependencies of the kit. See [Installation](/docs/installation) for
+the peer dependency ranges.
+
+</Step>
+<Step>
+
+### Add the provider
+
+The old hooks called `useRouter`, `useRouterWithTopLoader` and `toast` directly. That wiring now lives in one place.
+For the dashboard (next-intl, sonner, nextjs-toploader):
+
+```tsx title="src/components/providers/crud-providers.tsx"
+"use client";
+
+import { useRouter } from "next/navigation";
+import type { ReactNode } from "react";
+import { toast } from "sonner";
+import { NextCrudProvider } from "submitly/next";
+
+import { useRouterWithTopLoader } from "@/hooks/use-router-with-top-loader";
+
+export function CrudProviders({ children }: { children: ReactNode }) {
+  const router = useRouterWithTopLoader(useRouter());
+
+  return (
+    <NextCrudProvider
+      notify={{
+        success: (result) => toast.success(result.message),
+        error: (result) => toast.error(result.message),
+      }}
+      // The loader starts on every programmatic navigation, as before.
+      navigate={(to) => router.push(to)}
+      // runAction revalidates the paths, so skip the extra router.refresh().
+      refreshOnMutated={false}
+    >
+      {children}
+    </NextCrudProvider>
+  );
+}
+```
+
+Mount it once, inside the locale layout where the toaster and the top loader already live.
+
+</Step>
+<Step>
+
+### Switch the imports
+
+| Before | After |
+| --- | --- |
+| `import { useCrudForm, useConfirmAction, useControllableDialog } from "@/lib/forms"` | `import { useCrudForm, useCrudAction, useControllableDialog } from "submitly"` |
+| `import type { ActionResult } from "@/lib/forms"` | `import type { ActionResult } from "submitly"` |
+| `import { runAction } from "@/lib/forms/server"` | `import { runAction } from "submitly/next/server"` |
+
+Rename `useConfirmAction` to `useCrudAction` at its call sites. Its options are a superset, so existing calls
+(`action`, `onSuccess`, `redirectTo`) compile unchanged.
+
+</Step>
+<Step>
+
+### Move the UI components into the app
+
+`FormDialog`, `ConfirmDialog`, `FormErrors`, `SubmitButton` and the `Form*` family are not part of the package. Keep
+them as app components, e.g. `src/components/forms/`, built on your shadcn primitives. The two dialog components need a
+small rewrite on top of the headless helpers; the shadcn `Dialog` is a Radix Dialog, so start from the
+[Radix variant](/docs/recipes/dialogs).
+
+A before/after of the part that changes in `FormDialog`:
+
+```tsx
+// Before: local state, formKey bumped by hand, isPending passed by the caller.
+const { open: dialogOpen, setOpen } = useControllableDialog(open, onOpenChange);
+const [formKey, setFormKey] = useState(0);
+// if (isPending) return; in every handler
+
+// After: the lock and the remount key come from submitly.
+const lock = useDialogLockScope();
+const dialog = useControllableDialog({ open, onOpenChange, locked: lock.isLocked });
+// dialog.openKey replaces formKey; wrap the content in <DialogLockProvider scope={lock.scope}>.
+```
+
+The `isPending` prop disappears, because `useCrudForm` and `useCrudAction` lock the dialog themselves.
+
+</Step>
+<Step>
+
+### Update the server actions
+
+See below.
+
+</Step>
+</Steps>
+
+## `runAction`
+
+```ts
+// Before
+return runAction({
+  schema,
+  input,
+  handler: (data) => serviceFn(data), // returns ApiResponse
+  revalidatePaths: ["/en/products"],
+});
+
+// After
+return runAction({
+  schema,
+  input,
+  handler: (data) => serviceFn(data), // an ApiResponse is already ActionResult-shaped
+  revalidate: { paths: ["/en/products"] }, // also supports tags, and a function of (data, result)
+});
+```
+
+What changed in behaviour:
+
+| Before | After |
+| --- | --- |
+| `revalidatePaths: string[] \| (input) => string[]` | `revalidate: { paths, tags } \| (data, result) => { paths, tags }`. Runs only for successful results. |
+| Validation failure: `errors` is a flat list of issue messages | `fieldErrors` keyed by dotted path, plus `errors` for issues without a path. The form shows each message on its field. |
+| `catch {}` swallowed every error, including Next.js `redirect()` | `redirect()`, `notFound()`, `forbidden()` and `unauthorized()` are re-thrown. Other errors go to `onError` and `mapError`. |
+| Fixed "Validation failed" / "Unexpected error" strings | The `messages` option, as strings or an async function. |
+| The handler had to return `ApiResponse` | Any value. `ActionResult`-shaped values pass through; others become `data`. |
+
+For the dashboard, where the locale is an argument of the action, pass the translated strings per call:
+
+```ts
+export async function createProductAction(input: unknown, locale: string) {
+  const t = await getActionTranslations(locale, "Crud");
+
+  return runAction({
+    schema: createProductSchema,
+    input,
+    messages: { validation: t("validation"), unexpected: t("unexpectedError") },
+    handler: (data) => createProduct(data),
+    revalidate: { paths: [`/${locale}/products`] },
+  });
+}
+```
+
+If the locale is available from the request instead, use a `messages` function in [`createRunAction`](/docs/recipes/i18n).
+
+## Behaviour differences to know about
+
+- **Success toasts need a `message`.** The old hooks called `toast.success(result.message)` unconditionally. Now `notify`
+  runs only when the result has a `message`. The dashboard's `ApiResponse` always has one, so nothing changes there; for
+  new actions, return a `message`.
+- **A thrown action no longer crashes the form.** It goes through `mapError` (default: the error's message as a failed
+  result), so `onSubmit` and `execute` always settle.
+- **Double submits are ignored.** Both hooks guard against a second call while one is running.
+- **Server field errors.** A result with `fieldErrors` sets errors on the matching fields. The old kit only had the
+  flat `errors` list.
+- **`onError`, `notify`, `onMutated`, `redirectTo` and `lockDialog`** are new options on both hooks. See
+  [`MutationOptions`](/docs/reference/submitly#mutationoptions).
+- **`useControllableDialog` in controlled mode** now bumps `openKey` too, so a controlled dialog also remounts its
+  form on open. The old kit only did that for the uncontrolled `FormDialog`.
+- **`ActionResult.statusCode` and `message` are optional.** Code that reads `result.message` as a `string` needs a
+  fallback or a non-null assertion.
+
+## Checklist
+
+- [ ] `submitly` installed; the provider mounted once.
+- [ ] Hook and `runAction` imports switched; `useConfirmAction` renamed to `useCrudAction`.
+- [ ] `FormDialog` and `ConfirmDialog` rewritten as app components over the headless helpers.
+- [ ] `revalidatePaths` replaced with `revalidate: { paths }`.
+- [ ] Per-call or global `messages` set, if the app is localized.
+- [ ] `src/lib/forms/hooks`, `server` and `types` deleted; `optionalString` replaced.

@@ -1,0 +1,124 @@
+---
+title: Schema idempotency
+description: Why a shared schema must accept its own output, and how to fix schemas that do not.
+---
+
+`useCrudForm` validates the form on the client and calls your action with the schema's **parsed output**. If that action
+is a server action using `runAction`, the server validates the value **again** with the same schema. So the schema is
+asked to parse its own output:
+
+```
+form input ──schema.parse──▶ output ──(network)──▶ runAction: schema.parse(output) ──▶ handler
+```
+
+A schema that cannot accept its own output fails on the second pass, even though the user did nothing wrong. The
+result is a 422 that no field can display.
+
+<Callout type="warn">
+  Rule: for every value the schema can produce, parsing that value again must succeed and give the same value.
+</Callout>
+
+## Typical offenders
+
+### A transform that returns `undefined`
+
+```ts
+// Fails the second pass: the output `undefined` is rejected by `z.string()`.
+sku: z.string().trim().transform((value) => value || undefined),
+```
+
+Make the base type accept `undefined` **before** the transform:
+
+```ts
+sku: z
+  .string()
+  .trim()
+  .optional()
+  .transform((value) => value || undefined),
+```
+
+### A transform that changes the type
+
+```ts
+// Output is a number; the second pass hands a number to z.string().
+price: z.string().transform(Number),
+```
+
+Use a schema that accepts both the text from the input and the number it produces. In Zod 4, coercion does exactly that:
+
+```ts
+// Input type string (what the <input> holds), output type number. A number passes the second pass.
+price: z.coerce.number<string>().positive(),
+```
+
+In Zod 3, use `z.coerce.number()`.
+
+### Transforms that are fine
+
+Idempotent transforms (parsing the output gives the same output) need nothing:
+
+```ts
+name: z.string().trim().min(2),           // trim(trim(x)) === trim(x)
+handle: z.string().toLowerCase(),         // lowercase of lowercase is itself
+count: z.coerce.number().int(),           // a number coerces to itself
+```
+
+## Alternative: validate with the output schema on the server
+
+If a schema cannot be made idempotent, give the server a second schema that describes the **output** shape. The form
+keeps the input-shaped schema, and `runAction` validates the value the form actually sends:
+
+```ts
+// lib/schema.ts
+export const productFormSchema = z.object({
+  name: z.string().trim().min(2),
+  price: z.string().transform(Number).pipe(z.number().positive()), // form: text in, number out
+});
+
+export const productInputSchema = z.object({
+  name: z.string().min(2),
+  price: z.number().positive(),
+});
+```
+
+```ts
+// app/actions.ts
+export async function createProduct(input: unknown) {
+  return runAction({ schema: productInputSchema, input, handler: save });
+}
+```
+
+This keeps the server strict about the real wire format. The cost is two schemas to keep in sync.
+
+## Test it
+
+A one-minute test catches this class of bug. The `validate` helper from `submitly` runs any Standard Schema:
+
+```ts
+import { validate } from "submitly";
+import { expect, it } from "vitest";
+
+import { productSchema } from "@/lib/schema";
+
+it("accepts its own output", async () => {
+  const first = await validate(productSchema, { name: "  Desk lamp ", price: "29", sku: "" });
+  if (first.issues) throw new Error("the sample input should be valid");
+
+  const second = await validate(productSchema, first.value);
+  if (second.issues) throw new Error("the schema rejected its own output");
+
+  expect(second.value).toEqual(first.value);
+});
+```
+
+## Other schema libraries
+
+The rule is the same for Valibot, ArkType and any other Standard Schema library: whatever the schema outputs, it must
+also accept as input. Run the test above against your schema, and fall back to the two-schema approach when a
+transform cannot be made idempotent.
+
+## What else crosses the wire
+
+The parsed output is serialized to call a server action, so keep it to values the framework can serialize (strings,
+numbers, booleans, plain objects and arrays, `Date`, ...). A schema that outputs class instances, functions or `Map`s will
+not survive the trip.

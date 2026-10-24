@@ -1,0 +1,350 @@
+---
+title: "Quick start: Vite + React Router + TanStack Query"
+description: Use submitly in a plain React app with an API client that throws its own error type.
+---
+
+submitly works without Next.js. This walkthrough builds the same product list as the
+[Next.js quick start](/docs/quick-start-next), with a typical single-page stack:
+
+- [Vite](https://vite.dev) for the build,
+- [React Router](https://reactrouter.com) for navigation,
+- [TanStack Query](https://tanstack.com/query) for server state,
+- a small `fetch` client that **throws its own `ApiError`**, adapted to submitly with `mapError`,
+- [sonner](https://sonner.emilkowal.ski) for toasts and [Zod](https://zod.dev) for validation.
+
+Every file below is complete. Paste them into a project created with `npm create vite@latest` (the `react-ts` template).
+
+## 1. Install
+
+```npm
+npm i submitly react-hook-form zod react-router @tanstack/react-query sonner
+```
+
+## 2. A stand-in backend
+
+So the example runs on its own, this Vite plugin serves a tiny in-memory `/api/products` endpoint during
+`vite` and `vite preview`. Replace it with your real API.
+
+```ts title="vite.config.ts"
+import react from "@vitejs/plugin-react";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { defineConfig, type Plugin } from "vite";
+
+/** A stand-in backend so the quick start runs on its own. Replace with your real API. */
+function mockApi(): Plugin {
+  type Product = { id: number; name: string; price: number };
+
+  const products: Product[] = [{ id: 1, name: "Desk lamp", price: 29 }];
+  let nextId = 2;
+
+  async function readJson(req: IncomingMessage) {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    return raw ? JSON.parse(raw) : {};
+  }
+
+  async function handle(req: IncomingMessage, res: ServerResponse) {
+    const send = (status: number, body?: unknown) => {
+      res.statusCode = status;
+      res.setHeader("content-type", "application/json");
+      res.end(body === undefined ? "" : JSON.stringify(body));
+    };
+
+    // The path is relative to the mount point: "/" or "/<id>".
+    const id = Number((req.url ?? "/").split("/")[1]);
+
+    if (req.method === "GET") return send(200, products);
+
+    if (req.method === "POST") {
+      const input = await readJson(req);
+
+      if (products.some((product) => product.name === input.name)) {
+        return send(409, {
+          message: "Could not save the product",
+          fieldErrors: { name: ["A product with this name already exists"] },
+        });
+      }
+
+      const product = { id: nextId++, name: input.name, price: input.price };
+      products.push(product);
+      return send(201, product);
+    }
+
+    if (req.method === "DELETE") {
+      const index = products.findIndex((product) => product.id === id);
+      if (index === -1) return send(404, { message: "Product not found" });
+      products.splice(index, 1);
+      return send(204);
+    }
+
+    send(405, { message: "Method not allowed" });
+  }
+
+  return {
+    name: "mock-api",
+    configureServer(server) {
+      server.middlewares.use("/api/products", handle);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use("/api/products", handle);
+    },
+  };
+}
+
+export default defineConfig({
+  plugins: [react(), mockApi()],
+});
+```
+
+## 3. The API client and its error type
+
+The client throws `ApiError` for every non-2xx response, as most real clients do. `fromApiError` is the `mapError`
+adapter: it turns that error into an [`ActionResult`](/docs/concepts/action-result), so a rejected request becomes
+a toast, a form-level error, or a field error instead of an unhandled rejection.
+
+```ts title="src/lib/api.ts"
+import { defaultMapError, type ActionResult } from "submitly";
+
+export type Product = { id: number; name: string; price: number };
+
+/** The error type of this app's API client. */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly fieldErrors?: Record<string, string[]>;
+
+  constructor(status: number, message: string, fieldErrors?: Record<string, string[]>) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.fieldErrors = fieldErrors;
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    headers: { "content-type": "application/json", ...init?.headers },
+  });
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new ApiError(response.status, body?.message ?? response.statusText, body?.fieldErrors);
+  }
+
+  return body as T;
+}
+
+export const api = {
+  listProducts: () => request<Product[]>("/api/products"),
+  createProduct: (input: { name: string; price: number }) =>
+    request<Product>("/api/products", { method: "POST", body: JSON.stringify(input) }),
+  deleteProduct: (id: number) => request<void>(`/api/products/${id}`, { method: "DELETE" }),
+};
+
+/** `mapError` for submitly: adapts `ApiError` to an ActionResult. */
+export function fromApiError(error: unknown): ActionResult {
+  if (error instanceof ApiError) {
+    return {
+      success: false,
+      statusCode: error.status,
+      message: error.message,
+      // Field errors show on the fields; anything else goes to the form-level list.
+      errors: error.fieldErrors ? [] : [error.message],
+      fieldErrors: error.fieldErrors,
+    };
+  }
+
+  // Network failures and anything unexpected: the built-in mapping.
+  return defaultMapError(error);
+}
+```
+
+```ts title="src/lib/schema.ts"
+import { z } from "zod";
+
+export const productSchema = z.object({
+  name: z.string().trim().min(2, "Name must be at least 2 characters"),
+  // The input is the text of an <input>; the output is a number.
+  price: z.coerce.number<string>().positive("Price must be positive"),
+});
+```
+
+## 4. Wire the provider
+
+`CrudProvider` is where the app-wide conventions live. It must sit **inside** both the router and the query client so
+it can use their hooks: `onMutated` invalidates queries, and `navigate` goes through React Router's `useNavigate`.
+
+```tsx title="src/crud-provider.tsx"
+import { useQueryClient } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+import { CrudProvider } from "submitly";
+
+import { fromApiError } from "./lib/api";
+
+export function AppCrudProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  return (
+    <CrudProvider
+      notify={{
+        success: (result) => toast.success(result.message),
+        error: (result) => toast.error(result.message),
+      }}
+      onMutated={() => queryClient.invalidateQueries()}
+      navigate={(to) => navigate(to)}
+      mapError={fromApiError}
+    >
+      {children}
+    </CrudProvider>
+  );
+}
+```
+
+```tsx title="src/main.tsx"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { createBrowserRouter, Outlet } from "react-router";
+import { RouterProvider } from "react-router/dom";
+import { Toaster } from "sonner";
+
+import { AppCrudProvider } from "./crud-provider";
+import { ProductsPage } from "./products-page";
+
+const queryClient = new QueryClient();
+
+// A layout route renders inside the router, so the provider can call useNavigate().
+function Root() {
+  return (
+    <AppCrudProvider>
+      <Outlet />
+      <Toaster richColors />
+    </AppCrudProvider>
+  );
+}
+
+const router = createBrowserRouter([
+  { path: "/", Component: Root, children: [{ index: true, Component: ProductsPage }] },
+]);
+
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  </StrictMode>,
+);
+```
+
+## 5. The page: list, form and delete button
+
+The action passed to `useCrudForm` calls the API client. Because the client throws on failure, there is no
+`try` / `catch` here: submitly catches the error and runs it through `mapError`. On success, the action returns an
+`ActionResult` with a `message` so the `notify.success` handler has something to show.
+
+```tsx title="src/products-page.tsx"
+import { useQuery } from "@tanstack/react-query";
+import { useCrudAction, useCrudForm } from "submitly";
+
+import { api } from "./lib/api";
+import { productSchema } from "./lib/schema";
+
+function ProductForm() {
+  const { form, onSubmit, serverErrors, isSubmitting } = useCrudForm({
+    schema: productSchema,
+    defaultValues: { name: "", price: "" },
+    // `values` is the parsed output: price is a number.
+    action: async (values) => ({
+      success: true,
+      message: "Product created",
+      data: await api.createProduct(values),
+    }),
+  });
+
+  const { errors } = form.formState;
+
+  return (
+    <form onSubmit={onSubmit} noValidate>
+      {serverErrors.length > 0 && (
+        <ul role="alert">
+          {serverErrors.map((message, index) => (
+            <li key={index}>{message}</li>
+          ))}
+        </ul>
+      )}
+
+      <label>
+        Name
+        <input {...form.register("name")} />
+      </label>
+      {errors.name && <p>{errors.name.message}</p>}
+
+      <label>
+        Price
+        <input inputMode="decimal" {...form.register("price")} />
+      </label>
+      {errors.price && <p>{errors.price.message}</p>}
+
+      <button type="submit" disabled={isSubmitting}>
+        {isSubmitting ? "Saving..." : "Create product"}
+      </button>
+    </form>
+  );
+}
+
+function DeleteButton({ id }: { id: number }) {
+  const { execute, isPending } = useCrudAction({
+    action: async (productId: number) => {
+      await api.deleteProduct(productId);
+      return { success: true, message: "Product deleted" };
+    },
+  });
+
+  return (
+    <button type="button" disabled={isPending} onClick={() => execute(id)}>
+      {isPending ? "Deleting..." : "Delete"}
+    </button>
+  );
+}
+
+export function ProductsPage() {
+  const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: api.listProducts });
+
+  return (
+    <main>
+      <h1>Products</h1>
+      <ProductForm />
+      <ul>
+        {products.map((product) => (
+          <li key={product.id}>
+            {product.name}: ${product.price} <DeleteButton id={product.id} />
+          </li>
+        ))}
+      </ul>
+    </main>
+  );
+}
+```
+
+Run `npm run dev`. Create a product, then try to create another with the same name: the mock API answers `409` with
+`fieldErrors`, `ApiError` carries them, `fromApiError` maps them, and the message appears under the **Name** field
+and in an error toast.
+
+## How the pieces fit
+
+| Step | What happens |
+| --- | --- |
+| Submit | The schema validates in the browser. Invalid input never reaches the action. |
+| Action throws `ApiError` | `mapError` (`fromApiError`) converts it to a failed `ActionResult`. `notify.error` fires; `fieldErrors` land on the fields. |
+| Action succeeds | `notify.success`, then `onMutated` (`invalidateQueries`), then the form resets, then your `onSuccess`, then `redirectTo`. |
+| Redirect | `redirectTo: "/products/1"` on a hook calls the provider's `navigate`, which is React Router's `useNavigate()`. |
+
+## Next steps
+
+- [The submit lifecycle](/docs/concepts/submit-lifecycle) lists the exact order of every callback.
+- [Axios `mapError`](/docs/recipes/axios) and [Custom API shape](/docs/recipes/custom-api-shape) adapt other clients and
+  response envelopes.
+- [Dialogs](/docs/recipes/dialogs) shows the form inside Radix, Base UI, Headless UI or a native `<dialog>`.

@@ -1,0 +1,129 @@
+---
+title: Custom API shape with normalize
+description: Adapt an API's own response envelope, or a library like next-safe-action, to ActionResult.
+---
+
+An action can return anything. `normalize` turns whatever it returned into an [`ActionResult`](/docs/concepts/action-result),
+so you adapt the shape once instead of reshaping every action. Use it for successful return values. Use
+[`mapError`](/docs/recipes/axios) for thrown errors.
+
+## An `{ ok, ... }` envelope
+
+Suppose the API never throws, and answers every request with a discriminated envelope:
+
+```ts title="src/lib/normalize-envelope.ts"
+import { defaultNormalize, type ActionResult } from "submitly";
+
+type Envelope =
+  | { ok: true; data: unknown; notice?: string }
+  | { ok: false; error: { code: string; message: string; fields?: { path: string; message: string }[] } };
+
+function isEnvelope(value: unknown): value is Envelope {
+  return typeof value === "object" && value !== null && typeof (value as { ok?: unknown }).ok === "boolean";
+}
+
+export function normalizeEnvelope(raw: unknown): ActionResult {
+  // Anything that is not an envelope keeps the built-in behaviour.
+  if (!isEnvelope(raw)) return defaultNormalize(raw);
+
+  if (raw.ok) {
+    return { success: true, message: raw.notice, data: raw.data };
+  }
+
+  const { message, fields = [] } = raw.error;
+
+  // Group the field list by path: several messages can target the same field.
+  const fieldErrors: Record<string, string[]> = {};
+  for (const field of fields) {
+    (fieldErrors[field.path] ??= []).push(field.message);
+  }
+
+  return {
+    success: false,
+    message,
+    errors: fields.length ? [] : [message],
+    fieldErrors,
+  };
+}
+```
+
+Install it for the whole app:
+
+```tsx
+<CrudProvider normalize={normalizeEnvelope} /* ... */>
+```
+
+or for one call, which wins over the provider:
+
+```tsx
+useCrudForm({ schema, action: saveLegacyThing, normalize: normalizeEnvelope });
+```
+
+Field paths must be **dotted** (`items.0.name`) to match react-hook-form field names. If the API uses another notation
+(`items[0].name`), convert it in the adapter.
+
+## next-safe-action
+
+[next-safe-action](https://next-safe-action.dev) defines the server action; submitly handles the form and the result.
+Their action, our hooks. A safe action resolves to an object with `data`, `serverError` and `validationErrors`; teach
+submitly that shape:
+
+```ts title="lib/normalize-safe-action.ts"
+import type { ActionResult } from "submitly";
+
+type SafeActionResult = {
+  data?: unknown;
+  serverError?: string;
+  // The default "formatted" shape: `_errors` at each level, nested objects per field.
+  validationErrors?: Record<string, unknown>;
+};
+
+function collect(node: unknown, path: string, out: Record<string, string[]>) {
+  if (typeof node !== "object" || node === null) return;
+
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "_errors" && Array.isArray(value) && path) {
+      out[path] = [...(out[path] ?? []), ...(value as string[])];
+    } else if (key !== "_errors") {
+      collect(value, path ? `${path}.${key}` : key, out);
+    }
+  }
+}
+
+export function normalizeSafeAction(raw: unknown): ActionResult {
+  const result = (raw ?? {}) as SafeActionResult;
+
+  if (result.serverError) {
+    return { success: false, message: result.serverError, errors: [result.serverError] };
+  }
+
+  if (result.validationErrors) {
+    const fieldErrors: Record<string, string[]> = {};
+    collect(result.validationErrors, "", fieldErrors);
+
+    const rootErrors = (result.validationErrors as { _errors?: string[] })._errors ?? [];
+
+    return { success: false, message: "Validation failed", errors: rootErrors, fieldErrors };
+  }
+
+  return { success: true, data: result.data };
+}
+```
+
+```tsx
+const { form, onSubmit } = useCrudForm({
+  schema: productSchema, // the same schema your safe action uses
+  defaultValues: { name: "", price: "" },
+  action: (values) => createProductSafe(values), // a next-safe-action action
+  normalize: normalizeSafeAction,
+});
+```
+
+`useCrudForm` already validates with the schema on the client, so most validation errors never reach the server; the
+mapping covers the rest. Because the safe action validates the form's parsed output again, the
+[schema idempotency](/docs/concepts/schema-idempotency) rule applies here too.
+
+<Callout type="warn">
+  This adapter is written against next-safe-action's documented default result shape. Check it against the version you
+  use, especially if you configured a custom `defaultValidationErrorsShape`.
+</Callout>

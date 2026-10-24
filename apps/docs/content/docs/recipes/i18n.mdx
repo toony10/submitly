@@ -1,0 +1,286 @@
+---
+title: i18n with next-intl and react-i18next
+description: submitly has no strings of its own. Here is where your translated strings plug in.
+---
+
+submitly never imports an i18n library and renders no text. Every string a user can see comes from one of four places,
+all of them yours:
+
+| Where the text comes from | Plug-in point |
+| --- | --- |
+| Labels, buttons, headings | Your components. |
+| Validation messages in the schema | A schema factory that takes a translator. |
+| `message` of a result (toasts) | The server action's handler, or `notify` / `normalize` on the client. |
+| `runAction`'s built-in messages ("Validation failed", "Unexpected error") | `runAction`'s `messages` option, an async function. |
+| `message` of a thrown error (network failure, 500) | `mapError`. |
+
+<Tabs items={["next-intl (Next.js)", "react-i18next (Vite)"]}>
+<Tab value="next-intl (Next.js)">
+
+## Localized schema
+
+Validation messages live in the schema. Build it with a factory that takes a translator, so the browser and the server
+each use their own `t`:
+
+```ts title="lib/schema.ts"
+import { z } from "zod";
+
+export function createProductSchema(t: (key: "nameRequired" | "priceInvalid") => string) {
+  return z.object({
+    name: z.string().trim().min(1, t("nameRequired")),
+    price: z.coerce.number<string>().positive(t("priceInvalid")),
+  });
+}
+```
+
+On the client, memoize it per translator:
+
+```tsx title="components/product-form.tsx"
+"use client";
+
+import { useTranslations } from "next-intl";
+import { useMemo } from "react";
+import { useCrudForm } from "submitly";
+
+import { createProduct } from "@/app/actions";
+import { createProductSchema } from "@/lib/schema";
+
+export function ProductForm() {
+  const t = useTranslations("Products");
+  const schema = useMemo(() => createProductSchema((key) => t(`validation.${key}`)), [t]);
+
+  const { form, onSubmit, serverErrors } = useCrudForm({
+    schema,
+    defaultValues: { name: "", price: "" },
+    action: (values) => createProduct(values),
+  });
+
+  const { errors } = form.formState;
+
+  return (
+    <form onSubmit={onSubmit} noValidate>
+      {serverErrors.map((message, index) => (
+        <p key={index} role="alert">
+          {message}
+        </p>
+      ))}
+      <label>
+        {t("name")}
+        <input {...form.register("name")} />
+      </label>
+      {errors.name && <p>{errors.name.message}</p>}
+      <label>
+        {t("price")}
+        <input {...form.register("price")} />
+      </label>
+      {errors.price && <p>{errors.price.message}</p>}
+      <button type="submit">{t("save")}</button>
+    </form>
+  );
+}
+```
+
+## Localized server messages
+
+The server action resolves the user's locale with next-intl's server API. Build the schema with the server translator,
+and return an already translated `message` from the handler:
+
+```ts title="app/actions.ts"
+"use server";
+
+import { getTranslations } from "next-intl/server";
+
+import { createProductSchema } from "@/lib/schema";
+import { runAction } from "@/lib/run-action";
+
+export async function createProduct(input: unknown) {
+  const t = await getTranslations("Products");
+
+  return runAction({
+    schema: createProductSchema((key) => t(`validation.${key}`)),
+    input,
+    handler: async (data) => {
+      // ... save `data` ...
+      return { success: true, message: t("created", { name: data.name }) };
+    },
+    revalidate: { paths: ["/products"] },
+  });
+}
+```
+
+`runAction`'s own messages (the `message` of a validation failure or an unexpected error) are configured once with
+`createRunAction`, with a `messages` **function** so they are resolved per request, in the request's locale:
+
+```ts title="lib/run-action.ts"
+import { getTranslations } from "next-intl/server";
+import { createRunAction } from "submitly/next/server";
+
+export const runAction = createRunAction({
+  messages: async () => {
+    const t = await getTranslations("Crud");
+    return { validation: t("validation"), unexpected: t("unexpected") };
+  },
+  onError: (error) => console.error(error),
+});
+```
+
+## Client-side strings
+
+Anything the client produces itself (a network failure, a missing message) is translated in the provider, where
+`useTranslations` is available:
+
+```tsx title="app/providers.tsx"
+"use client";
+
+import { useTranslations } from "next-intl";
+import type { ReactNode } from "react";
+import { Toaster, toast } from "sonner";
+import { NextCrudProvider } from "submitly/next";
+
+export function Providers({ children }: { children: ReactNode }) {
+  const t = useTranslations("Crud");
+
+  return (
+    <NextCrudProvider
+      refreshOnMutated={false}
+      notify={{
+        success: (result) => toast.success(result.message),
+        error: (result) => toast.error(result.message),
+      }}
+      // A thrown error that is not an interrupt: show a translated message, not error.message.
+      mapError={() => ({ success: false, message: t("unexpected"), errors: [t("unexpected")] })}
+    >
+      {children}
+      <Toaster />
+    </NextCrudProvider>
+  );
+}
+```
+
+</Tab>
+<Tab value="react-i18next (Vite)">
+
+## Localized schema
+
+Same idea: a factory that takes the translator.
+
+```ts title="src/lib/schema.ts"
+import type { TFunction } from "i18next";
+import { z } from "zod";
+
+export function createProductSchema(t: TFunction) {
+  return z.object({
+    name: z.string().trim().min(1, t("validation.nameRequired")),
+    price: z.coerce.number<string>().positive(t("validation.priceInvalid")),
+  });
+}
+```
+
+```tsx title="src/product-form.tsx"
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { useCrudForm } from "submitly";
+
+import { api } from "./lib/api";
+import { createProductSchema } from "./lib/schema";
+
+export function ProductForm() {
+  const { t } = useTranslation();
+  const schema = useMemo(() => createProductSchema(t), [t]);
+
+  const { form, onSubmit, serverErrors } = useCrudForm({
+    schema,
+    defaultValues: { name: "", price: "" },
+    action: async (values) => ({
+      success: true,
+      message: "products.created", // a translation key; the provider translates it
+      data: await api.createProduct(values),
+    }),
+  });
+
+  const { errors } = form.formState;
+
+  return (
+    <form onSubmit={onSubmit} noValidate>
+      {serverErrors.map((message, index) => (
+        <p key={index} role="alert">
+          {message}
+        </p>
+      ))}
+      <label>
+        {t("products.name")}
+        <input {...form.register("name")} />
+      </label>
+      {errors.name && <p>{errors.name.message}</p>}
+      <label>
+        {t("products.price")}
+        <input {...form.register("price")} />
+      </label>
+      {errors.price && <p>{errors.price.message}</p>}
+      <button type="submit">{t("products.save")}</button>
+    </form>
+  );
+}
+```
+
+## Translating results in the provider
+
+Without a server action that returns localized text, let results carry **translation keys** and translate them where the
+toast is shown. The provider is also the right place to localize thrown errors: `defaultMapError` uses the
+error's own (English) message, so replace it:
+
+```tsx title="src/crud-provider.tsx"
+import { useQueryClient } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+import { CrudProvider } from "submitly";
+
+export function AppCrudProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  // `message` is a key here ("products.created"), or an already translated server message.
+  const translate = (message = "") => t(message, { defaultValue: message });
+
+  return (
+    <CrudProvider
+      notify={{
+        success: (result) => toast.success(translate(result.message)),
+        error: (result) => toast.error(translate(result.message)),
+      }}
+      onMutated={() => queryClient.invalidateQueries()}
+      navigate={(to) => navigate(to)}
+      // A thrown error: a translated message instead of the error's English text.
+      mapError={() => ({ success: false, message: "crud.unexpected", errors: [t("crud.unexpected")] })}
+    >
+      {children}
+    </CrudProvider>
+  );
+}
+```
+
+`t(key, { defaultValue })` falls back to the raw text when a message is not a known key, so keys and already-translated
+messages can coexist.
+
+</Tab>
+</Tabs>
+
+## Rules of thumb
+
+- **Pass strings, not translators.** Hand submitly already-translated text (`runAction`'s `messages`, a result's
+  `message`), or keys that your own `notify` handler translates. No submitly option needs an i18n instance.
+- **A result without a `message` is silent.** If every success should toast, return a `message` from the server action, or
+  add one in a provider-level `normalize` for results that have none:
+
+  ```ts
+  normalize: (raw) => {
+    const result = defaultNormalize(raw);
+    return result.success && !result.message ? { ...result, message: t("crud.saved") } : result;
+  },
+  ```
+
+- **Keep the schema idempotent.** A schema built by a factory is rebuilt on the server for every request. That is fine,
+  as long as the schema accepts its own output ([Schema idempotency](/docs/concepts/schema-idempotency)).

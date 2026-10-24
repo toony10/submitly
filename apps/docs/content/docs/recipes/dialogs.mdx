@@ -1,0 +1,277 @@
+---
+title: Dialogs with Radix, Base UI, Headless UI or native
+description: The same FormDialog for four dialog libraries, with the lock and the form remount wired up.
+---
+
+submitly ships no dialog. It gives you three headless pieces that connect to **any** dialog's open-state API:
+
+| Piece | Job |
+| --- | --- |
+| `useControllableDialog({ open, onOpenChange, locked })` | Owns the open state (controlled or not), ignores changes while `locked`, and returns `openKey` for remounting the form. |
+| `useDialogLockScope()` | Creates the lock scope and exposes `locked` (for rendering) and `isLocked()` (for guards). |
+| `DialogLockProvider` | Hands the scope to `useCrudForm` / `useCrudAction` below it, which lock automatically while pending. |
+
+Every variant below is a drop-in `components/form-dialog.tsx` with **the same props**, so the forms, tables and recipes
+elsewhere in this documentation work unchanged with whichever library you pick. The wiring is always the same three
+steps:
+
+1. `const lock = useDialogLockScope()`.
+2. `const dialog = useControllableDialog({ open, onOpenChange, locked: lock.isLocked })`, and give the library
+   `open={dialog.open}` and `onOpenChange={dialog.setOpen}`. Escape, overlay click and close buttons all go through
+   `setOpen`, which does nothing while locked.
+3. Wrap the content in `<DialogLockProvider scope={lock.scope}>` and pass `dialog.openKey` out as the form's `key`.
+
+<Tabs items={["Radix", "Base UI", "Headless UI", "Native <dialog>"]}>
+<Tab value="Radix">
+
+```npm
+npm i @radix-ui/react-dialog
+```
+
+shadcn/ui's `Dialog` is a styled Radix Dialog: use its `Dialog`, `DialogContent` and `DialogTitle` in place of the
+primitives below.
+
+```tsx title="components/form-dialog.radix.tsx"
+"use client";
+
+import * as Dialog from "@radix-ui/react-dialog";
+import type { ReactNode } from "react";
+import { DialogLockProvider, useControllableDialog, useDialogLockScope } from "submitly";
+
+export type FormDialogProps = {
+  title: string;
+  trigger?: (open: () => void) => ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  children: (props: { formKey: number; onClose: () => void }) => ReactNode;
+};
+
+export function FormDialog({ title, trigger, open, onOpenChange, children }: FormDialogProps) {
+  const lock = useDialogLockScope();
+  const dialog = useControllableDialog({ open, onOpenChange, locked: lock.isLocked });
+
+  return (
+    <>
+      {trigger?.(() => dialog.setOpen(true))}
+      <Dialog.Root open={dialog.open} onOpenChange={dialog.setOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay />
+          <Dialog.Content aria-busy={lock.locked || undefined} aria-describedby={undefined}>
+            <Dialog.Title>{title}</Dialog.Title>
+            <Dialog.Close asChild>
+              <button type="button" disabled={lock.locked} aria-label="Close">
+                x
+              </button>
+            </Dialog.Close>
+            <DialogLockProvider scope={lock.scope}>
+              {children({ formKey: dialog.openKey, onClose: () => dialog.setOpen(false) })}
+            </DialogLockProvider>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
+  );
+}
+```
+
+Radix unmounts the content when the dialog closes, so the form inside is mounted fresh on every open even without
+`openKey`. Keep the `key` anyway: it also covers controlled dialogs that stay mounted.
+
+</Tab>
+<Tab value="Base UI">
+
+```npm
+npm i @base-ui/react
+```
+
+```tsx title="components/form-dialog.base-ui.tsx"
+"use client";
+
+import { Dialog } from "@base-ui/react/dialog";
+import type { ReactNode } from "react";
+import { DialogLockProvider, useControllableDialog, useDialogLockScope } from "submitly";
+
+export type FormDialogProps = {
+  title: string;
+  trigger?: (open: () => void) => ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  children: (props: { formKey: number; onClose: () => void }) => ReactNode;
+};
+
+export function FormDialog({ title, trigger, open, onOpenChange, children }: FormDialogProps) {
+  const lock = useDialogLockScope();
+  const dialog = useControllableDialog({ open, onOpenChange, locked: lock.isLocked });
+
+  return (
+    <>
+      {trigger?.(() => dialog.setOpen(true))}
+      <Dialog.Root open={dialog.open} onOpenChange={(next) => dialog.setOpen(next)}>
+        <Dialog.Portal>
+          <Dialog.Backdrop />
+          <Dialog.Popup aria-busy={lock.locked || undefined}>
+            <Dialog.Title>{title}</Dialog.Title>
+            <Dialog.Close disabled={lock.locked} aria-label="Close">
+              x
+            </Dialog.Close>
+            <DialogLockProvider scope={lock.scope}>
+              {children({ formKey: dialog.openKey, onClose: () => dialog.setOpen(false) })}
+            </DialogLockProvider>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
+  );
+}
+```
+
+</Tab>
+<Tab value="Headless UI">
+
+```npm
+npm i @headlessui/react
+```
+
+Headless UI's `Dialog` calls `onClose` for Escape and for clicks outside the panel. Route it through `setOpen`, which
+ignores it while locked.
+
+```tsx title="components/form-dialog.headless-ui.tsx"
+"use client";
+
+import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from "@headlessui/react";
+import type { ReactNode } from "react";
+import { DialogLockProvider, useControllableDialog, useDialogLockScope } from "submitly";
+
+export type FormDialogProps = {
+  title: string;
+  trigger?: (open: () => void) => ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  children: (props: { formKey: number; onClose: () => void }) => ReactNode;
+};
+
+export function FormDialog({ title, trigger, open, onOpenChange, children }: FormDialogProps) {
+  const lock = useDialogLockScope();
+  const dialog = useControllableDialog({ open, onOpenChange, locked: lock.isLocked });
+
+  return (
+    <>
+      {trigger?.(() => dialog.setOpen(true))}
+      <Dialog open={dialog.open} onClose={() => dialog.setOpen(false)}>
+        <DialogBackdrop />
+        <DialogPanel aria-busy={lock.locked || undefined}>
+          <DialogTitle>{title}</DialogTitle>
+          <button type="button" onClick={() => dialog.setOpen(false)} disabled={lock.locked} aria-label="Close">
+            x
+          </button>
+          <DialogLockProvider scope={lock.scope}>
+            {children({ formKey: dialog.openKey, onClose: () => dialog.setOpen(false) })}
+          </DialogLockProvider>
+        </DialogPanel>
+      </Dialog>
+    </>
+  );
+}
+```
+
+</Tab>
+<Tab value="Native <dialog>">
+
+A native `<dialog>` needs a little more glue: you drive `showModal()` / `close()` from the open state, and stop the
+browser's own Escape handling by intercepting `cancel`.
+
+```tsx title="components/form-dialog.native.tsx"
+"use client";
+
+import { useEffect, useRef, type ReactNode } from "react";
+import { DialogLockProvider, useControllableDialog, useDialogLockScope } from "submitly";
+
+export type FormDialogProps = {
+  title: string;
+  trigger?: (open: () => void) => ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  children: (props: { formKey: number; onClose: () => void }) => ReactNode;
+};
+
+export function FormDialog({ title, trigger, open, onOpenChange, children }: FormDialogProps) {
+  const lock = useDialogLockScope();
+  const dialog = useControllableDialog({ open, onOpenChange, locked: lock.isLocked });
+  const ref = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const element = ref.current;
+
+    if (dialog.open && !element?.open) element?.showModal();
+    if (!dialog.open && element?.open) element.close();
+  }, [dialog.open]);
+
+  const close = () => dialog.setOpen(false);
+
+  return (
+    <>
+      {trigger?.(() => dialog.setOpen(true))}
+      <dialog
+        ref={ref}
+        aria-labelledby="form-dialog-title"
+        aria-busy={lock.locked || undefined}
+        // Escape: prevent the browser from closing it, and ask setOpen instead (ignored while locked).
+        onCancel={(event) => {
+          event.preventDefault();
+          close();
+        }}
+        // Backdrop click: the click target is the <dialog> itself.
+        onClick={(event) => {
+          if (event.target === event.currentTarget) close();
+        }}
+      >
+        {dialog.open ? (
+          <div>
+            <h2 id="form-dialog-title">{title}</h2>
+            <button type="button" onClick={close} disabled={lock.locked} aria-label="Close">
+              x
+            </button>
+            <DialogLockProvider scope={lock.scope}>
+              {children({ formKey: dialog.openKey, onClose: close })}
+            </DialogLockProvider>
+          </div>
+        ) : null}
+      </dialog>
+    </>
+  );
+}
+```
+
+</Tab>
+</Tabs>
+
+## Using it
+
+Any of the four works the same way:
+
+```tsx
+<FormDialog
+  title="New product"
+  trigger={(open) => (
+    <button type="button" onClick={open}>
+      Add product
+    </button>
+  )}
+>
+  {({ formKey, onClose }) => <ProductForm key={formKey} onDone={onClose} />}
+</FormDialog>
+```
+
+`ProductForm` calls `useCrudForm`. While it submits, the dialog is locked, so Escape, the overlay and the close button
+do nothing. When the action succeeds, the lock is released, `onSuccess` calls `onClose`, and the dialog closes.
+
+## Checklist for a new library
+
+If your dialog library is not listed, check these:
+
+- It offers a **controlled** `open` / `onOpenChange` (or `onClose`). Every mainstream library does.
+- **All** dismissal routes call that handler: Escape, outside click, the close button, and your own `onSuccess`. Point
+  them all at `dialog.setOpen`.
+- The content is **unmounted** while closed, or you use `openKey` as the form's `key` so it remounts on open.
+- The context passes through the library's portal. React context does, so `DialogLockProvider` can sit inside the
+  portalled content.

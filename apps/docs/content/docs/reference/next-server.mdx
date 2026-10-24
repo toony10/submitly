@@ -1,0 +1,200 @@
+---
+title: "submitly/next/server"
+description: runAction and createRunAction, the server half for Next.js server actions.
+---
+
+```ts
+import { runAction, createRunAction } from "submitly/next/server";
+```
+
+Server-only. The module imports `server-only`, so importing it from client code fails the build. It needs `next >= 15`.
+
+| Export | Kind |
+| --- | --- |
+| [`runAction`](#runaction) | Function |
+| [`createRunAction`](#createrunaction) | Function |
+| [`RunActionOptions`](#runactionoptions) | Type |
+| [`RunActionDefaults`](#runactiondefaults) | Type |
+| [`RunActionMessages`](#runactionmessages) | Type |
+| [`RevalidateTargets`](#revalidatetargets) | Type |
+| [`DefaultResultData`](#defaultresultdata) | Type |
+
+## `runAction`
+
+```ts
+function runAction<TSchema extends StandardSchemaV1, TRaw, TData = DefaultResultData<TRaw>>(
+  options: RunActionOptions<TSchema, TRaw, TData>,
+): Promise<ActionResult<TData>>;
+```
+
+The server-side wrapper for a server action. It:
+
+1. **Validates** `input` with `schema`. On failure it resolves to a 422 result (see below); the handler is not called.
+2. **Runs** `handler` with the schema's parsed output.
+3. **Normalizes** what the handler returned (`normalize`, or the default).
+4. **Revalidates** paths and tags, only when the result is successful.
+5. **Catches** anything thrown and turns it into a failed `ActionResult`.
+
+Next.js control-flow errors (`redirect()`, `notFound()`, `forbidden()`, `unauthorized()`) are **re-thrown untouched**, so
+a handler can redirect as usual.
+
+```ts
+"use server";
+
+import { runAction } from "submitly/next/server";
+
+export async function saveProduct(input: unknown) {
+  return runAction({
+    schema: productSchema,
+    input,
+    handler: (data) => db.products.save(data),
+    revalidate: { paths: ["/products"], tags: ["products"] },
+  });
+}
+```
+
+### The results it produces
+
+| Situation | Result |
+| --- | --- |
+| Input fails the schema | `{ success: false, statusCode: 422, message: messages.validation, errors, fieldErrors }`. `fieldErrors` is keyed by dotted path (`items.0.name`); `errors` holds issues without a usable path. |
+| Handler returns normally | Its return value, normalized: an `ActionResult` passes through, `undefined` becomes `{ success: true }`, anything else becomes `{ success: true, data }`. |
+| Handler (or the schema, or revalidation) throws | `mapError(error)` when provided; otherwise `{ success: false, statusCode: 500, message: messages.unexpected, errors: [messages.unexpected] }`. `onError` is called first. |
+| `redirect()` and friends | Re-thrown. `mapError` and `onError` never see them. |
+
+The built-in messages are `"Validation failed"` and `"Unexpected error"`. Override them with `messages`.
+
+### Options
+
+See [`RunActionOptions`](#runactionoptions) for the full table.
+
+## `createRunAction`
+
+```ts
+function createRunAction(defaults: RunActionDefaults): typeof runAction;
+```
+
+Creates a `runAction` with app-wide defaults for `messages`, `mapError` and `onError`. Per-call options win over the
+defaults. Use it to localize messages and to log errors in one place.
+
+```ts
+// lib/run-action.ts (a regular module, NOT a "use server" file)
+import { getTranslations } from "next-intl/server";
+import { createRunAction } from "submitly/next/server";
+
+export const runAction = createRunAction({
+  messages: async () => {
+    const t = await getTranslations("Crud");
+    return { validation: t("validation"), unexpected: t("unexpected") };
+  },
+  onError: (error) => console.error(error),
+});
+```
+
+```ts
+// app/actions.ts
+"use server";
+
+import { runAction } from "@/lib/run-action";
+```
+
+<Callout type="warn">
+  A `"use server"` file may only export async functions, so create the configured `runAction` in a regular module and
+  import it into your actions file.
+</Callout>
+
+The returned function has the same signature as `runAction`.
+
+## `RunActionOptions`
+
+```ts
+type RunActionOptions<TSchema extends StandardSchemaV1, TRaw, TData> = Omit<RunActionDefaults, "mapError"> & {
+  schema: TSchema;
+  input: unknown;
+  handler: (data: StandardSchemaV1.InferOutput<TSchema>) => TRaw | Promise<TRaw>;
+  normalize?: (raw: TRaw) => ActionResult<TData>;
+  mapError?: (error: unknown) => ActionResult<TData>;
+  revalidate?:
+    | RevalidateTargets
+    | ((data: StandardSchemaV1.InferOutput<TSchema>, result: ActionResult<TData>) => RevalidateTargets);
+};
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `schema` | `StandardSchemaV1` | required | Any Standard Schema. The handler receives its **parsed output**. |
+| `input` | `unknown` | required | Untrusted input, typically the server action's argument. |
+| `handler` | `(data) => TRaw \| Promise<TRaw>` | required | Your logic. May be sync or async and may return an `ActionResult`, an entity or nothing. |
+| `normalize` | `(raw: TRaw) => ActionResult<TData>` | built-in | Maps the handler's return value. Default: `ActionResult`s pass through, `undefined` becomes `{ success: true }`, anything else becomes `data`. |
+| `mapError` | `(error: unknown) => ActionResult<TData>` | `RunActionDefaults.mapError`, then the 500 result | Maps a thrown handler error. Next.js control-flow errors never reach it. |
+| `revalidate` | `RevalidateTargets \| ((data, result) => RevalidateTargets)` | none | Cache invalidation. Runs **only** when the result is successful. A function receives the parsed input and the result, so targets can depend on them. |
+| `messages` | `Partial<RunActionMessages> \| (() => Partial<RunActionMessages> \| Promise<Partial<RunActionMessages>>)` | `{ validation: "Validation failed", unexpected: "Unexpected error" }` | Overrides the `message` of validation and unexpected-error results. Pass strings, or a function resolved per request (for example from your i18n). Layered over any `createRunAction` defaults. |
+| `onError` | `(error: unknown) => void` | `RunActionDefaults.onError` | Called with every unexpected handler error, for logging. Not called for control-flow errors. When set, it replaces (not adds to) the `createRunAction` default. |
+
+`TRaw` is the handler's return type and `TData` the result's data type; both are inferred.
+
+## `RunActionDefaults`
+
+```ts
+type RunActionDefaults = {
+  messages?: Partial<RunActionMessages> | (() => Partial<RunActionMessages> | Promise<Partial<RunActionMessages>>);
+  mapError?: (error: unknown) => ActionResult;
+  onError?: (error: unknown) => void;
+};
+```
+
+The options you can set once with [`createRunAction`](#createrunaction).
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `messages` | `Partial<RunActionMessages> \| (() => ...)` | built-in strings | Strings, or a function resolving them per request. A per-call `messages` is layered over this. |
+| `mapError` | `(error: unknown) => ActionResult` | the 500 result | Maps a thrown handler error. Next.js control-flow errors never reach it. |
+| `onError` | `(error: unknown) => void` | none | Called with every unexpected handler error. |
+
+## `RunActionMessages`
+
+```ts
+type RunActionMessages = {
+  validation: string;
+  unexpected: string;
+};
+```
+
+| Key | Default | Used for |
+| --- | --- | --- |
+| `validation` | `"Validation failed"` | The `message` of a result that failed schema validation. |
+| `unexpected` | `"Unexpected error"` | The `message` (and single `errors` entry) of a result whose handler threw. |
+
+The `messages` option accepts any subset; missing keys fall back to the defaults. The `messages` function is only called
+when a message is actually needed (a validation failure or an unexpected error).
+
+## `RevalidateTargets`
+
+```ts
+type RevalidateTargets = {
+  paths?: Array<string | { path: string; type: "page" | "layout" }>;
+  tags?: Array<string | { tag: string; profile: string | { expire?: number } }>;
+};
+```
+
+| Field | Entry | What runs |
+| --- | --- | --- |
+| `paths` | `"/products"` | `revalidatePath("/products")` |
+| `paths` | `{ path: "/products/[id]", type: "page" }` | `revalidatePath(path, type)`. A route pattern with dynamic segments needs `type`. |
+| `tags` | `"products"` | Expires the tag immediately (read-your-own-writes): `updateTag("products")` on Next 16+, `revalidateTag("products")` on Next 15. |
+| `tags` | `{ tag: "products", profile: "max" }` | `revalidateTag(tag, profile)`: stale-while-revalidate. `profile` is a cache-life profile name or an object like `{ expire: 3600 }`. |
+
+Paths run first, then tags, in the order given.
+
+## `DefaultResultData`
+
+```ts
+type DefaultResultData<TRaw> = [TRaw] extends [ActionResult<infer TData>]
+  ? TData
+  : [TRaw] extends [void]
+    ? undefined
+    : TRaw;
+```
+
+The `TData` of a handler's return value when no `normalize` is given: the `data` type of a returned `ActionResult`;
+`undefined` for a handler that returns nothing; otherwise the returned type itself.

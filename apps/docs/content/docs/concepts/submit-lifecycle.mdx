@@ -1,0 +1,115 @@
+---
+title: The submit lifecycle
+description: The exact order of validation, notify, onMutated, reset, onSuccess and redirect, the failure path, and the guards around them.
+---
+
+`useCrudForm` and `useCrudAction` run the same pipeline. This page lists it step by step, so you know exactly when each
+callback fires.
+
+## `useCrudForm`: submit
+
+<Steps>
+<Step>
+
+### Guard
+
+If a submit is already in flight, the new one is ignored: the event's default is prevented and nothing else happens.
+Otherwise the form marks itself in flight and **locks the nearest dialog** (unless `lockDialog: false`).
+
+</Step>
+<Step>
+
+### Validate
+
+react-hook-form runs the schema through the built-in Standard Schema resolver. If validation fails, react-hook-form
+sets the field errors, **the action is not called**, nothing is notified, and the lock is released.
+
+</Step>
+<Step>
+
+### Call the action
+
+`serverErrors` is cleared. The action receives the schema's **parsed output** (after transforms). The return value goes
+through `normalize`. A thrown error goes through `mapError`, unless `isInterrupt` recognises it. Either way the call
+**never rejects**: the outcome is always an `ActionResult`.
+
+</Step>
+<Step>
+
+### Release the dialog lock
+
+The lock is released **before** any callback runs, so an `onSuccess` that closes the dialog is not blocked by its own lock.
+
+</Step>
+</Steps>
+
+Then the path forks on `result.success`.
+
+### Success path
+
+| Order | Step | Notes |
+| --- | --- | --- |
+| 1 | `notify.success(result)` | Only when `result.message` is set and `notify` is not `false`. Per-call handler first, then the provider's. |
+| 2 | `onMutated()` | Per-call `onMutated` replaces the provider's; `false` skips it. |
+| 3 | Form reset | `form.reset(defaultValues)`. Skipped with `resetOnSuccess: false`. |
+| 4 | `onSuccess(result)` | Your callback. |
+| 5 | Redirect | `redirectTo` (a string, or a function of the result that may return `null` / `undefined` to skip) is passed to the provider's `navigate`. |
+
+### Failure path
+
+| Order | Step | Notes |
+| --- | --- | --- |
+| 1 | `notify.error(result)` | Only when `result.message` is set and `notify` is not `false`. |
+| 2 | `serverErrors` is set | `result.errors`, plus any `fieldErrors` entries whose key is empty. |
+| 3 | Field errors applied | One `form.setError(name, { type: "server", ... })` per entry in `result.fieldErrors`; the first one is focused. |
+| 4 | `onError(result)` | Your callback. |
+
+There is no `onMutated`, reset or redirect on failure: the form keeps the user's input so they can fix it.
+
+### Interrupts
+
+If the action throws a value for which `isInterrupt` returns `true`, the pipeline stops after the lock is released. No
+notify, no `serverErrors`, no `onError`, no reset, no redirect. See [Interrupts](/docs/concepts/provider#interrupts).
+
+## `useCrudAction`: execute
+
+`execute(input)` follows the same shape, without validation, fields or reset:
+
+1. **Guard.** If a call is in flight, return **the same promise** (a double click fires the action once, and both
+   callers get the same result).
+2. `serverErrors` is cleared, `isPending` becomes `true`, and the dialog is locked (unless `lockDialog: false`).
+3. Call the action, with `normalize` / `mapError` / `isInterrupt` as above. Never rejects.
+4. Release the dialog lock.
+5. **Interrupt:** resolve with `{ success: false }` and stop.
+6. `notify` (success or error handler), when the result has a `message`.
+7. **Success:** `onMutated()`, then `onSuccess(result)`, then the redirect.
+   **Failure:** `serverErrors` becomes `result.errors ?? []`, then `onError(result)`.
+8. `isPending` returns to `false`; `execute` resolves with the `ActionResult`.
+
+`useCrudAction` never touches `fieldErrors`: it has no form to apply them to.
+
+## Guarantees and boundaries
+
+| | `useCrudForm` | `useCrudAction` |
+| --- | --- | --- |
+| Concurrent calls | The second submit is ignored. | The second call returns the first call's promise. |
+| Identity | Not part of the contract. | `execute` is stable across renders. |
+| Pending flag | `isSubmitting` (react-hook-form's, true from submit until the pipeline settles) | `isPending` |
+| Latest options | Callbacks and options are read when they run, so a stale closure never fires. | Same. |
+| Errors from `action` or `normalize` | Caught, mapped by `mapError`. | Same. |
+
+<Callout type="warn">
+  Only the action (and `normalize`) is guarded. Errors thrown by **your own callbacks** (`onSuccess`, `onError`, a
+  `notify` handler, `onMutated`, `navigate`) are not caught: they propagate out of `onSubmit` / `execute` like any other
+  exception. Keep those callbacks safe, or catch inside them.
+</Callout>
+
+## Typical sequence
+
+A successful create-in-a-dialog, as the user experiences it:
+
+1. The user clicks **Save**. The dialog locks; escape, overlay click and the close button do nothing.
+2. The server answers `{ success: true, message: "Created" }`.
+3. The lock is released. A toast shows "Created". The list refreshes (`onMutated`). The form resets.
+4. Your `onSuccess` closes the dialog. Because the lock is already released, `setOpen(false)` is honoured.
+5. The next time the dialog opens, `openKey` has changed, so the form remounts with fresh default values.

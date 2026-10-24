@@ -1,0 +1,421 @@
+---
+title: "submitly (main entry)"
+description: Every export of the main entry point, with options, defaults and return values.
+---
+
+```ts
+import { useCrudForm, useCrudAction, CrudProvider /* ... */ } from "submitly";
+```
+
+The main entry point has no dependency on Next.js. It is a client module (`"use client"`): it can be imported from a
+Server Component tree to render its components, but its functions can only be **called** from client code.
+
+| Export | Kind |
+| --- | --- |
+| [`CrudProvider`](#crudprovider), [`useCrudConfig`](#usecrudconfig), [`defaultCrudConfig`](#defaultcrudconfig) | Provider and configuration |
+| [`useCrudForm`](#usecrudform) | Hook |
+| [`useCrudAction`](#usecrudaction) | Hook |
+| [`useControllableDialog`](#usecontrollabledialog) | Hook |
+| [`useDialogLockScope`](#usedialoglockscope), [`DialogLockProvider`](#dialoglockprovider), [`useDialogLock`](#usedialoglock), [`useDialogLockHandle`](#usedialoglockhandle) | Dialog lock |
+| [`isActionResult`](#isactionresult), [`defaultNormalize`](#defaultnormalize), [`defaultMapError`](#defaultmaperror) | Result helpers |
+| [`getDotPath`](#getdotpath), [`issuesToErrors`](#issuestoerrors), [`validate`](#validate) | Schema helpers |
+| [`ActionResult`](#actionresult), [`FieldErrorMap`](#fielderrormap), [`Normalize`](#normalize-and-maperror), [`MapError`](#normalize-and-maperror), [`NotifyHandlers`](#notifyhandlers), [`InferResultData`](#inferresultdata), [`MutationOptions`](#mutationoptions), [`CrudConfig`](#crudconfig), [`CrudProviderProps`](#crudproviderprops), [`UseCrudFormOptions`](#usecrudform), [`UseCrudFormReturn`](#usecrudform), [`UseCrudActionOptions`](#usecrudaction), [`UseCrudActionReturn`](#usecrudaction), [`UseControllableDialogOptions`](#usecontrollabledialog), [`UseControllableDialogReturn`](#usecontrollabledialog), [`DialogLockScope`](#dialoglockscope) | Types |
+
+## Hooks
+
+### `useCrudForm`
+
+```ts
+function useCrudForm<TFieldValues extends FieldValues, TOutput = TFieldValues, TResult = unknown>(
+  options: UseCrudFormOptions<TFieldValues, TOutput, TResult>,
+): UseCrudFormReturn<TFieldValues, TOutput>;
+```
+
+react-hook-form, Standard Schema validation and action submission, with notify / refresh / reset / redirect on success
+and server errors (form-level and per field) on failure. The order of every step is described in
+[The submit lifecycle](/docs/concepts/submit-lifecycle).
+
+`TFieldValues` is the schema's **input** type (what the form fields hold), `TOutput` its **output** type (what `action`
+receives), and `TResult` the action's resolved type, from which `TData` is inferred for the callbacks.
+
+#### Options (`UseCrudFormOptions`)
+
+`UseCrudFormOptions` is the options below plus every [`MutationOptions`](#mutationoptions) field.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `schema` | `StandardSchemaV1<TFieldValues, TOutput>` | required | Any Standard Schema: Zod 3.24+ / 4, Valibot 1, ArkType 2, ... Used as the react-hook-form resolver. |
+| `defaultValues` | `DefaultValues<TFieldValues>` | `undefined` | Initial values. Also what the form is reset to after success. Read by react-hook-form on mount only; remount with a `key` to load different values. |
+| `action` | `(values: TOutput) => Promise<TResult>` | required | Receives the schema's **parsed output** (after transforms). Any async function. Its return value goes through `normalize`; a thrown error goes through `mapError`. |
+| `resetOnSuccess` | `boolean` | `true` | Reset the form to `defaultValues` after a successful result. |
+| `formOptions` | `Omit<UseFormProps<TFieldValues, unknown, TOutput>, "resolver" \| "defaultValues">` | `undefined` | Extra `useForm` options such as `mode` or `reValidateMode`. |
+| `onSuccess` | `(result: ActionResult<TData>) => void` | `undefined` | See [`MutationOptions`](#mutationoptions). |
+| `onError` | `(result: ActionResult<TData>) => void` | `undefined` | See [`MutationOptions`](#mutationoptions). |
+| `redirectTo` | `string \| ((result) => string \| null \| undefined)` | `undefined` | See [`MutationOptions`](#mutationoptions). |
+| `notify` | `false \| NotifyHandlers` | provider's | See [`MutationOptions`](#mutationoptions). |
+| `onMutated` | `false \| (() => void)` | provider's | See [`MutationOptions`](#mutationoptions). |
+| `normalize` | `Normalize` | provider's | See [`MutationOptions`](#mutationoptions). |
+| `mapError` | `MapError` | provider's | See [`MutationOptions`](#mutationoptions). |
+| `lockDialog` | `boolean` | `true` | See [`MutationOptions`](#mutationoptions). |
+
+#### Returns (`UseCrudFormReturn`)
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `form` | `UseFormReturn<TFieldValues, unknown, TOutput>` | The regular react-hook-form object: `register`, `control`, `formState`, `setValue`, `reset`, ... |
+| `onSubmit` | `(event?: BaseSyntheticEvent) => Promise<void>` | Pass it to `<form onSubmit>`. Never rejects because of the action (see the boundaries in [the lifecycle](/docs/concepts/submit-lifecycle#guarantees-and-boundaries)); ignores submits while one is in flight. |
+| `serverErrors` | `string[]` | Form-level errors from the last failed result: `result.errors`, plus `fieldErrors` entries with no usable key. Cleared at the start of the next submit. |
+| `clearServerErrors` | `() => void` | Empties `serverErrors`. |
+| `isSubmitting` | `boolean` | react-hook-form's `formState.isSubmitting`, true while the submit (validation, action and callbacks) is running. |
+
+```tsx
+const { form, onSubmit, serverErrors, isSubmitting } = useCrudForm({
+  schema,
+  defaultValues: { name: "" },
+  action: (values) => saveProduct(values),
+  onSuccess: (result) => close(),
+});
+```
+
+### `useCrudAction`
+
+```ts
+function useCrudAction<TInput = void, TResult = unknown>(
+  options: UseCrudActionOptions<TInput, TResult>,
+): UseCrudActionReturn<TInput, InferResultData<TResult>>;
+```
+
+A non-form mutation (delete, toggle, bulk action) with the same notify / refresh / redirect / error conventions as
+`useCrudForm`. With `TInput = void`, call `execute()` without an argument.
+
+#### Options (`UseCrudActionOptions`)
+
+`UseCrudActionOptions` is the option below plus every [`MutationOptions`](#mutationoptions) field.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `action` | `(input: TInput) => Promise<TResult>` | required | Any async function: a server action, a `fetch` wrapper, an RPC call. |
+
+The inherited options (`onSuccess`, `onError`, `redirectTo`, `notify`, `onMutated`, `normalize`, `mapError`,
+`lockDialog`) behave as described under [`MutationOptions`](#mutationoptions).
+
+#### Returns (`UseCrudActionReturn`)
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `execute` | `(input: TInput) => Promise<ActionResult<TData>>` | Runs the action. Never rejects because of the action: thrown errors go through `mapError`, and an interrupt resolves with a bare `{ success: false }` and no side effects. While a call is in flight, further calls return the same promise. Stable identity across renders. |
+| `isPending` | `boolean` | True while a call is in flight. |
+| `serverErrors` | `string[]` | `result.errors` of the last failed call. Cleared when the next call starts. |
+| `clearServerErrors` | `() => void` | Empties `serverErrors`. |
+
+```tsx
+const { execute, isPending } = useCrudAction({
+  action: (id: number) => deleteProduct(id),
+  onSuccess: () => close(),
+});
+
+<button disabled={isPending} onClick={() => execute(row.id)}>Delete</button>;
+```
+
+### `useControllableDialog`
+
+```ts
+function useControllableDialog(options?: UseControllableDialogOptions): UseControllableDialogReturn;
+```
+
+Open state for any dialog, controlled or uncontrolled, that ignores every change while locked and tells you when to
+remount the form inside it.
+
+#### Options (`UseControllableDialogOptions`)
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `open` | `boolean` | `undefined` | Controlled open state. Leave it `undefined` for an uncontrolled dialog. |
+| `defaultOpen` | `boolean` | `false` | Initial state when uncontrolled. |
+| `onOpenChange` | `(open: boolean) => void` | `undefined` | Called on every requested change, controlled or not. |
+| `locked` | `boolean \| (() => boolean)` | `false` | While true, every open-state change is ignored. Pass a function (such as `useDialogLockScope().isLocked`) to read it at call time. |
+
+#### Returns (`UseControllableDialogReturn`)
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `open` | `boolean` | The current open state (the `open` option when controlled, internal state otherwise). |
+| `setOpen` | `(open: boolean) => void` | Requests a change. Ignored while locked. Updates internal state when uncontrolled, and always calls `onOpenChange`. |
+| `openKey` | `number` | Increments on every closed-to-open transition, controlled or not. Use it as the `key` of the form inside the dialog. |
+| `isControlled` | `boolean` | True when the `open` option is defined. |
+
+## Provider
+
+### `CrudProvider`
+
+```ts
+function CrudProvider(props: CrudProviderProps): JSX.Element;
+```
+
+Supplies notify, refresh, navigation and result mapping to every submitly hook below it. All props are optional.
+Nested providers override their parent prop by prop, and `notify` merges per key. See
+[The provider and resolution order](/docs/concepts/provider).
+
+#### `CrudProviderProps`
+
+| Prop | Type | Default | Description |
+| --- | --- | --- | --- |
+| `children` | `ReactNode` | | Content that can use the hooks. |
+| `notify` | `NotifyHandlers` | no-ops | `{ success, error }` handlers, called with the `ActionResult` when it has a `message`. Merged per key with a parent provider. |
+| `onMutated` | `() => void` | no-op | Called after every successful mutation (refetch, invalidate queries, `router.refresh()`). |
+| `navigate` | `(to: string) => void` | `window.location.assign` | Used for `redirectTo`. |
+| `normalize` | `Normalize` | `defaultNormalize` | Turns whatever an action returned into an `ActionResult`. |
+| `mapError` | `MapError` | `defaultMapError` | Turns a thrown error into an `ActionResult`. |
+| `isInterrupt` | `(error: unknown) => boolean` | `() => false` | Identifies thrown values the framework is already handling (such as a Next.js `redirect()`). The hooks then stop silently. |
+
+### `useCrudConfig`
+
+```ts
+function useCrudConfig(): CrudConfig;
+```
+
+Returns the fully resolved configuration: built-in defaults when there is no provider, otherwise the merge of every
+enclosing provider. Useful for custom hooks that want the same conventions.
+
+### `defaultCrudConfig`
+
+```ts
+const defaultCrudConfig: CrudConfig;
+```
+
+The configuration used when there is no provider: no-op `notify` and `onMutated`, `navigate` via
+`window.location.assign` (guarded for the server), `defaultNormalize`, `defaultMapError`, and no interrupts.
+
+### `CrudConfig`
+
+```ts
+type CrudConfig = {
+  notify: Required<NotifyHandlers>;
+  onMutated: () => void;
+  navigate: (to: string) => void;
+  normalize: Normalize;
+  mapError: MapError;
+  isInterrupt: (error: unknown) => boolean;
+};
+```
+
+The resolved configuration, as read by the hooks. Unlike `CrudProviderProps`, every field is present.
+
+## Dialog lock
+
+See [The dialog lock](/docs/concepts/dialog-lock) for how the pieces fit together.
+
+### `useDialogLockScope`
+
+```ts
+function useDialogLockScope(): {
+  locked: boolean;
+  isLocked: () => boolean;
+  scope: DialogLockScope;
+};
+```
+
+The owner side, used inside a dialog component. The dialog is locked while any holder below the matching
+[`DialogLockProvider`](#dialoglockprovider) holds the lock.
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `locked` | `boolean` | React state. Use it for rendering, such as disabling a close button. |
+| `isLocked` | `() => boolean` | Synchronous read, current even before the owner re-renders. Use it for guards, such as `useControllableDialog`'s `locked`. Stable identity. |
+| `scope` | `DialogLockScope` | Pass it to `DialogLockProvider`. Stable identity. |
+
+### `DialogLockProvider`
+
+```ts
+function DialogLockProvider(props: { scope: DialogLockScope; children?: ReactNode }): JSX.Element;
+```
+
+Makes `scope` available to the hooks below it. Outside a provider, locking is a no-op.
+
+### `DialogLockScope`
+
+```ts
+type DialogLockScope = {
+  setLock: (id: string, locked: boolean) => void;
+  isLocked: () => boolean;
+};
+```
+
+The object `useDialogLockScope` creates and the lock hooks use. You normally pass it straight to `DialogLockProvider`.
+
+### `useDialogLock`
+
+```ts
+function useDialogLock(locked: boolean): void;
+```
+
+Locks the nearest enclosing dialog (no close, escape or overlay click) while `locked` is true. A no-op outside a dialog.
+`useCrudForm` and `useCrudAction` lock automatically while pending.
+
+### `useDialogLockHandle`
+
+```ts
+function useDialogLockHandle(): (locked: boolean) => void;
+```
+
+Returns a stable imperative setter for the nearest dialog's lock, for custom pending states. The lock is released
+automatically on unmount. A no-op outside a dialog.
+
+## Shared options and types
+
+### `MutationOptions`
+
+```ts
+type MutationOptions<TData> = {
+  onSuccess?: (result: ActionResult<TData>) => void;
+  onError?: (result: ActionResult<TData>) => void;
+  redirectTo?: string | ((result: ActionResult<TData>) => string | null | undefined);
+  notify?: false | NotifyHandlers;
+  onMutated?: false | (() => void);
+  normalize?: Normalize;
+  mapError?: MapError;
+  lockDialog?: boolean;
+};
+```
+
+The options `useCrudForm` and `useCrudAction` share. Each overrides the provider for that call.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `onSuccess` | `(result: ActionResult<TData>) => void` | `undefined` | Called after a successful result, after `notify`, `onMutated` and (for forms) the reset. |
+| `onError` | `(result: ActionResult<TData>) => void` | `undefined` | Called after a failed result. Not called for interrupts. |
+| `redirectTo` | `string \| ((result) => string \| null \| undefined)` | `undefined` | Navigate after success through the provider's `navigate`. A function receives the result and may return `null` or `undefined` to skip the redirect. |
+| `notify` | `false \| NotifyHandlers` | the provider's `notify` | `false` silences notifications for this call. An object overrides the `success` and/or `error` handler for this call. |
+| `onMutated` | `false \| (() => void)` | the provider's `onMutated` | `false` skips it (for example, the server action already revalidated). A function replaces the provider's. |
+| `normalize` | `Normalize` | the provider's `normalize` | Overrides result normalization for this call. |
+| `mapError` | `MapError` | the provider's `mapError` | Overrides error mapping for this call. |
+| `lockDialog` | `boolean` | `true` | Lock the enclosing dialog while pending. |
+
+### `NotifyHandlers`
+
+```ts
+type NotifyHandlers = {
+  success?: (result: ActionResult) => void;
+  error?: (result: ActionResult) => void;
+};
+```
+
+Called with the whole result, and only when `result.message` is set.
+
+### `Normalize` and `MapError`
+
+```ts
+type Normalize = (raw: unknown) => ActionResult;
+type MapError = (error: unknown) => ActionResult;
+```
+
+`Normalize` turns whatever an action returned into an `ActionResult`. `MapError` turns a thrown error (network failure,
+HTTP error, ...) into one.
+
+### `InferResultData`
+
+```ts
+type InferResultData<TResult> = [TResult] extends [ActionResult<infer TData>] ? TData : unknown;
+```
+
+Extracts `TData` from an action's return type. Actions that do not return an `ActionResult` (for example a fetch wrapper
+returning the entity) give `unknown`, because a provider-level `normalize` decides what `data` ends up being.
+
+## Result contract
+
+### `ActionResult`
+
+```ts
+type ActionResult<TData = unknown> = {
+  success: boolean;
+  message?: string;
+  data?: TData;
+  errors?: string[];
+  fieldErrors?: FieldErrorMap;
+  statusCode?: number;
+};
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `success` | `boolean` | Required. Chooses the success or failure path. |
+| `message` | `string` | Passed to `notify.success` / `notify.error` when present. |
+| `data` | `TData` | The payload, passed to callbacks. |
+| `errors` | `string[]` | Form-level errors, exposed as `serverErrors`. |
+| `fieldErrors` | `FieldErrorMap` | Field errors keyed by dotted path, applied with `form.setError`. |
+| `statusCode` | `number` | Optional and informational. |
+
+See [The ActionResult contract](/docs/concepts/action-result).
+
+### `FieldErrorMap`
+
+```ts
+type FieldErrorMap = Record<string, string[]>;
+```
+
+Field errors keyed by dotted path, matching react-hook-form field names (`items.0.name`).
+
+### `isActionResult`
+
+```ts
+function isActionResult(value: unknown): value is ActionResult;
+```
+
+True for a non-null object whose `success` property is a boolean. This is the check `defaultNormalize` uses to decide
+whether a value is already an `ActionResult`.
+
+### `defaultNormalize`
+
+```ts
+function defaultNormalize(raw: unknown): ActionResult;
+```
+
+The built-in `normalize`. `ActionResult`-shaped values pass through; `undefined` becomes `{ success: true }`; anything
+else becomes `{ success: true, data: raw }`. Call it from your own `normalize` as the fallback for values you do not
+recognize.
+
+### `defaultMapError`
+
+```ts
+function defaultMapError(error: unknown): ActionResult;
+```
+
+The built-in `mapError`. An `Error` (or a thrown string) becomes
+`{ success: false, message, errors: [message] }`, so a thrown error is never silent. Any other value becomes
+`{ success: false }`. Call it from your own `mapError` as the fallback for errors you do not recognize.
+
+## Schema helpers
+
+### `validate`
+
+```ts
+function validate<TSchema extends StandardSchemaV1>(
+  schema: TSchema,
+  input: unknown,
+): Promise<StandardSchemaV1.Result<StandardSchemaV1.InferOutput<TSchema>>>;
+```
+
+Runs any Standard Schema, sync or async, and returns its result: `{ value }` on success, `{ issues }` on failure.
+`runAction` uses the same call. Handy in tests, for example to check a schema's [idempotency](/docs/concepts/schema-idempotency).
+
+### `getDotPath`
+
+```ts
+function getDotPath(issue: StandardSchemaV1.Issue): string | undefined;
+```
+
+The dotted path of a Standard Schema issue (`items.0.name`), the format react-hook-form uses for field names. Returns
+`undefined` for root-level issues (no path) and for paths containing a symbol key.
+
+### `issuesToErrors`
+
+```ts
+function issuesToErrors(issues: readonly StandardSchemaV1.Issue[]): {
+  fieldErrors: FieldErrorMap;
+  errors: string[];
+};
+```
+
+Splits schema issues into `fieldErrors` (keyed by dotted path, several messages per field when there are several
+issues) and form-level `errors` (issues without a usable path). It is what `runAction` uses to build a validation
+failure.

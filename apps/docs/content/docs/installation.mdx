@@ -1,0 +1,64 @@
+---
+title: Installation
+description: Install submitly, its peer dependencies and a Standard Schema library.
+---
+
+## Install the packages
+
+```npm
+npm i submitly react-hook-form
+```
+
+Then add the schema library you want to validate with. Any library that implements
+[Standard Schema](https://standardschema.dev) works:
+
+<Tabs items={["Zod", "Valibot", "ArkType"]}>
+  <Tab value="Zod">
+    ```npm
+    npm i zod
+    ```
+  </Tab>
+  <Tab value="Valibot">
+    ```npm
+    npm i valibot
+    ```
+  </Tab>
+  <Tab value="ArkType">
+    ```npm
+    npm i arktype
+    ```
+  </Tab>
+</Tabs>
+
+submitly bundles its own Standard Schema resolver for react-hook-form, so there is no resolver package to install.
+
+## Requirements
+
+| Dependency | Range | Notes |
+| --- | --- | --- |
+| `react` | `>=18.2` | Peer dependency. |
+| `react-hook-form` | `^7.55` | Peer dependency. |
+| `next` | `>=15` | Optional peer dependency, only needed for `submitly/next` and `submitly/next/server`. |
+| Schema library | Zod 3.24+ or 4, Valibot 1, ArkType 2, or any other Standard Schema implementation | submitly has no dependency on a specific library. |
+| TypeScript | `>=5.4` | For consumers who use the types. |
+
+The package is ESM-only. Its client entry points ship with a `"use client"` directive, so they can be imported from
+a Next.js Server Component tree (for example, a layout importing `NextCrudProvider`).
+
+## Entry points
+
+| Import | Contents | Runs on |
+| --- | --- | --- |
+| `submitly` | `CrudProvider`, `useCrudForm`, `useCrudAction`, `useControllableDialog`, the dialog lock helpers, the `ActionResult` contract and its helpers | Client |
+| `submitly/next` | `NextCrudProvider`, `isNextInterrupt` | Client |
+| `submitly/next/server` | `runAction`, `createRunAction` | Server only |
+
+`submitly/next/server` imports `server-only`, so bundling it into client code fails the build instead of leaking
+server code. See the [API reference](/docs/reference/submitly) for every export.
+
+## Next steps
+
+<Cards>
+  <Card title="Quick start: Next.js" href="/docs/quick-start-next" />
+  <Card title="Quick start: Vite + React Router + TanStack Query" href="/docs/quick-start-vite" />
+</Cards>

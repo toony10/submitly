@@ -1,0 +1,108 @@
+---
+title: Detail page with redirect
+description: Delete from a detail page and navigate away, or create an entity and land on its page.
+---
+
+When the page you are on stops existing (you just deleted what it shows), refreshing is the wrong response: you want to
+navigate away. `redirectTo` does that through the provider's `navigate`, after the success toast and `onMutated`.
+
+This recipe uses the actions from [Add, edit and delete an entity](/docs/recipes/add-edit-delete).
+
+## Delete and go back to the list
+
+```tsx title="components/delete-and-leave.tsx"
+"use client";
+
+import { useCrudAction } from "submitly";
+
+import { deleteProduct } from "@/app/actions";
+
+export function DeleteAndLeave({ id }: { id: number }) {
+  const { execute, isPending, serverErrors } = useCrudAction({
+    action: () => deleteProduct(id),
+    redirectTo: "/products",
+  });
+
+  return (
+    <>
+      <button type="button" disabled={isPending} onClick={() => execute()}>
+        {isPending ? "Deleting..." : "Delete product"}
+      </button>
+      {serverErrors.map((message, index) => (
+        <p key={index} role="alert">
+          {message}
+        </p>
+      ))}
+    </>
+  );
+}
+```
+
+```tsx title="app/products/[id]/page.tsx"
+import { notFound } from "next/navigation";
+
+import { DeleteAndLeave } from "@/components/delete-and-leave";
+import { db } from "@/lib/db";
+
+export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const product = db.get(Number(id));
+
+  if (!product) notFound();
+
+  return (
+    <main>
+      <h1>{product.name}</h1>
+      <p>${product.price}</p>
+      <DeleteAndLeave id={product.id} />
+    </main>
+  );
+}
+```
+
+On success the order is: toast, `onMutated`, `onSuccess`, then **navigate**. With `NextCrudProvider`, `navigate` is
+`router.push`; in a Vite app it is whatever you passed to `CrudProvider` (for example React Router's `useNavigate`).
+
+<Callout>
+  `deleteProduct` revalidates `/products`, the list you are going back to, not the page you are leaving. Revalidating
+  the detail page of an entity that no longer exists would only render a 404 before the navigation completes.
+</Callout>
+
+## Create and open the new entity
+
+`redirectTo` can be a function of the result. It receives the result, so it can use `data`, and it can return `null` or
+`undefined` to skip the redirect.
+
+```tsx
+const { form, onSubmit } = useCrudForm({
+  schema: productSchema,
+  defaultValues: empty,
+  action: (values) => createProduct(values),
+  // result.data is the created Product (typed from the action's return type).
+  redirectTo: (result) => (result.data ? `/products/${result.data.id}` : null),
+  // The page is about to change, so there is no need to reset the form.
+  resetOnSuccess: false,
+});
+```
+
+## Client redirect or server `redirect()`?
+
+A server action can also call Next.js `redirect()`. Both work, but they behave differently:
+
+| | `redirectTo` (client) | `redirect()` in the handler |
+| --- | --- | --- |
+| Success toast | Shown, because `notify` runs first | **Not shown.** `redirect()` throws, and submitly treats the thrown redirect as an interrupt: no notify, no `onSuccess`. |
+| `onMutated` and `onSuccess` | Run | Do not run |
+| Target depends on the result | Yes, via the function form | Yes, in the handler |
+| Works in Vite | Yes | No (Next.js only) |
+
+Use `redirectTo` for "the operation worked, now go somewhere". Use `redirect()` for "you should not be here at all", such as an
+expired session: the interrupt makes the hooks stop silently while Next.js navigates.
+
+```ts
+handler: async () => {
+  const session = await getSession();
+  if (!session) redirect("/login"); // an interrupt: no toast, no error, no callbacks
+  // ...
+}
+```

@@ -1,0 +1,282 @@
+---
+title: "Quick start: Next.js"
+description: Wire submitly into a Next.js App Router app with a server action, a form and a delete button.
+---
+
+This walkthrough builds a small product list: a create form backed by a server action, and a delete button. It uses
+plain HTML elements, [Zod](https://zod.dev) and [sonner](https://sonner.emilkowal.ski) for toasts. Every file below is
+complete, so you can paste them into a fresh `create-next-app` project (TypeScript, App Router).
+
+<Callout>
+  The snippets use the `@/` import alias that `create-next-app` sets up. If you chose a `src/` directory, put every
+  path below under `src/`.
+</Callout>
+
+## 1. Install
+
+```npm
+npm i submitly react-hook-form zod sonner
+```
+
+## 2. Define the schema and a data store
+
+The same schema runs in the browser (inside `useCrudForm`) and on the server (inside `runAction`). The in-memory store
+stands in for your database.
+
+```ts title="lib/schema.ts"
+import { z } from "zod";
+
+export const productSchema = z.object({
+  name: z.string().trim().min(2, "Name must be at least 2 characters"),
+  // The input is the text of an <input>; the output is a number.
+  price: z.coerce.number<string>().positive("Price must be positive"),
+});
+```
+
+```ts title="lib/db.ts"
+export type Product = { id: number; name: string; price: number };
+
+const globalForDb = globalThis as unknown as { products?: Product[]; nextId?: number };
+
+globalForDb.products ??= [{ id: 1, name: "Desk lamp", price: 29 }];
+globalForDb.nextId ??= 2;
+
+export const db = {
+  list: (): Product[] => globalForDb.products!,
+  add(data: Omit<Product, "id">): Product {
+    const product = { id: globalForDb.nextId!++, ...data };
+    globalForDb.products!.push(product);
+    return product;
+  },
+  remove(id: number) {
+    globalForDb.products = globalForDb.products!.filter((product) => product.id !== id);
+  },
+};
+```
+
+## 3. Write the server actions
+
+`runAction` validates `input` with the schema, runs your handler with the parsed output, normalizes what it returns,
+revalidates on success, and turns a thrown error into a failed `ActionResult` instead of crashing the request.
+
+```ts title="app/actions.ts"
+"use server";
+
+import { runAction } from "submitly/next/server";
+import { z } from "zod";
+
+import { db } from "@/lib/db";
+import { productSchema } from "@/lib/schema";
+
+export async function createProduct(input: unknown) {
+  return runAction({
+    schema: productSchema,
+    input,
+    handler: (data) => {
+      const product = db.add(data);
+      return { success: true, message: `Created "${product.name}"`, data: product };
+    },
+    revalidate: { paths: ["/"] },
+  });
+}
+
+export async function deleteProduct(id: unknown) {
+  return runAction({
+    schema: z.number().int(),
+    input: id,
+    handler: (productId) => {
+      db.remove(productId);
+      return { success: true, message: "Product deleted" };
+    },
+    revalidate: { paths: ["/"] },
+  });
+}
+```
+
+Each action takes `unknown` on purpose: server actions are public HTTP endpoints, so `runAction` treats the argument as
+untrusted input and validates it.
+
+## 4. Mount the provider
+
+`NextCrudProvider` is a client component, so a Server Component layout can import it directly. But the `notify`
+handlers are functions, and functions cannot be passed from a Server Component to a Client Component. Wrap the
+provider in a small `"use client"` component that owns them:
+
+```tsx title="app/providers.tsx"
+"use client";
+
+import type { ReactNode } from "react";
+import { Toaster, toast } from "sonner";
+import { NextCrudProvider } from "submitly/next";
+
+export function Providers({ children }: { children: ReactNode }) {
+  return (
+    <NextCrudProvider
+      // runAction revalidates in the same round trip, so skip the extra router.refresh().
+      refreshOnMutated={false}
+      notify={{
+        success: (result) => toast.success(result.message),
+        error: (result) => toast.error(result.message),
+      }}
+    >
+      {children}
+      <Toaster richColors />
+    </NextCrudProvider>
+  );
+}
+```
+
+```tsx title="app/layout.tsx"
+import type { ReactNode } from "react";
+
+import { Providers } from "./providers";
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  );
+}
+```
+
+`NextCrudProvider` is a `CrudProvider` preset: `navigate` calls `router.push()`, `onMutated` calls `router.refresh()`
+(switched off above), and a `redirect()` or `notFound()` thrown by a server action is treated as an interrupt, not an
+error.
+
+## 5. Build the form
+
+`useCrudForm` combines react-hook-form, schema validation and the action. `action` receives the schema's **parsed
+output** (a `number` for `price`), while the form fields work with the schema's **input** (a string).
+
+```tsx title="app/product-form.tsx"
+"use client";
+
+import { useCrudForm } from "submitly";
+
+import { createProduct } from "@/app/actions";
+import { productSchema } from "@/lib/schema";
+
+export function ProductForm() {
+  const { form, onSubmit, serverErrors, isSubmitting } = useCrudForm({
+    schema: productSchema,
+    defaultValues: { name: "", price: "" },
+    action: (values) => createProduct(values),
+  });
+
+  const { errors } = form.formState;
+
+  return (
+    <form onSubmit={onSubmit} noValidate>
+      {serverErrors.length > 0 && (
+        <ul role="alert">
+          {serverErrors.map((message, index) => (
+            <li key={index}>{message}</li>
+          ))}
+        </ul>
+      )}
+
+      <label>
+        Name
+        <input {...form.register("name")} />
+      </label>
+      {errors.name && <p>{errors.name.message}</p>}
+
+      <label>
+        Price
+        <input inputMode="decimal" {...form.register("price")} />
+      </label>
+      {errors.price && <p>{errors.price.message}</p>}
+
+      <button type="submit" disabled={isSubmitting}>
+        {isSubmitting ? "Saving..." : "Create product"}
+      </button>
+    </form>
+  );
+}
+```
+
+On submit: the schema validates client-side, `createProduct` runs on the server, the success message goes to the
+`notify.success` handler from the provider, and the form resets to `defaultValues`. A failed result puts `errors` in
+`serverErrors` and applies each `fieldErrors` entry with `form.setError`.
+
+## 6. Add a delete button
+
+`useCrudAction` is the same machinery for mutations that are not forms.
+
+```tsx title="app/delete-button.tsx"
+"use client";
+
+import { useCrudAction } from "submitly";
+
+import { deleteProduct } from "@/app/actions";
+
+export function DeleteButton({ id }: { id: number }) {
+  const { execute, isPending, serverErrors } = useCrudAction({
+    action: (productId: number) => deleteProduct(productId),
+  });
+
+  return (
+    <>
+      <button type="button" disabled={isPending} onClick={() => execute(id)}>
+        {isPending ? "Deleting..." : "Delete"}
+      </button>
+      {serverErrors.map((message, index) => (
+        <span key={index} role="alert">
+          {message}
+        </span>
+      ))}
+    </>
+  );
+}
+```
+
+`execute` never rejects, has a stable identity, and returns the same promise while a call is in flight, so a double
+click fires once.
+
+## 7. Put it on a page
+
+```tsx title="app/page.tsx"
+import { db } from "@/lib/db";
+
+import { DeleteButton } from "./delete-button";
+import { ProductForm } from "./product-form";
+
+export default function Home() {
+  const products = db.list();
+
+  return (
+    <main>
+      <h1>Products</h1>
+      <ProductForm />
+      <ul>
+        {products.map((product) => (
+          <li key={product.id}>
+            {product.name}: ${product.price} <DeleteButton id={product.id} />
+          </li>
+        ))}
+      </ul>
+    </main>
+  );
+}
+```
+
+Run `npm run dev`, create a product, and delete it. The list updates because `runAction` called
+`revalidatePath("/")` on the server.
+
+## What you got
+
+- Create a product with a name shorter than 2 characters: the schema message appears under the field, and no request
+  is sent.
+- A thrown error in a handler becomes `{ success: false, statusCode: 500, ... }`, the error toast fires and the form
+  stays editable.
+- Double-clicking Submit or Delete runs the action once.
+
+## Next steps
+
+- Return `fieldErrors` from a handler (for example for a duplicate name) and see them appear on the field: see the
+  [ActionResult contract](/docs/concepts/action-result).
+- Redirect after success with `redirectTo`: see [Detail page with redirect](/docs/recipes/detail-page-redirect).
+- Put the form in a dialog that locks while saving: see [Add, edit and delete an entity](/docs/recipes/add-edit-delete).

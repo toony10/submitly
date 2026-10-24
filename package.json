@@ -10,11 +10,12 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
+    "test": "turbo run test --filter=!submitly-e2e",
     "react18": "turbo run test:react18 typecheck:react18 --filter=submitly",
     "check-exports": "turbo run check-exports --filter=submitly",
     "changeset": "changeset",
-    "size": "turbo run size --filter=submitly"
+    "size": "turbo run size --filter=submitly",
+    "e2e": "pnpm --filter submitly-e2e test"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3",

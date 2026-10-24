@@ -7,6 +7,7 @@ const latencies = [
   { value: 0, label: "Off" },
   { value: 600, label: "600 ms" },
   { value: 2000, label: "2 s" },
+  { value: 5000, label: "5 s" },
 ] as const;
 
 function ScenarioButton({

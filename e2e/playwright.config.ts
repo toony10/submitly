@@ -18,7 +18,8 @@ export default defineConfig<TestOptions>({
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // No retries: a flaky test should fail loudly, not pass on the second attempt.
+  retries: 0,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"], ["html", { open: "never" }]],
   expect: { timeout: 10_000 },
   use: {

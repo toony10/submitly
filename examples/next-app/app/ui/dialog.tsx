@@ -3,6 +3,8 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { DialogLockProvider, useControllableDialog, useDialogLockScope } from "submitly";
 
+import { useFeedback } from "./feedback";
+
 /**
  * A native <dialog> wired to submitly's headless helpers: `openKey` remounts
  * the content on every open, and the form inside locks the dialog (Escape,
@@ -21,6 +23,16 @@ export function Dialog({
   const dialog = useControllableDialog({ locked: lock.isLocked });
   const ref = useRef<HTMLDialogElement>(null);
   const { open, setOpen, openKey } = dialog;
+  const { log } = useFeedback();
+  const wasOpen = useRef(false);
+
+  // Log every close of the dialog's open state (not the native `close` event, which a
+  // repeated Escape fires even though the dialog is put straight back).
+  useEffect(() => {
+    if (wasOpen.current && !open) log("dialog", `closed “${title}”`);
+
+    wasOpen.current = open;
+  }, [open, title, log]);
 
   useEffect(() => {
     const element = ref.current;

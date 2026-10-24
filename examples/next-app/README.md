@@ -14,7 +14,7 @@ pnpm --filter example-next-app start   # http://localhost:3000
 | --- | --- |
 | **Create product** | `useCrudForm` with Zod: client validation, server re-validation in `runAction`, server field errors (duplicate name), reset on success |
 | **Products** | **Edit** opens a native `<dialog>` wired with `useControllableDialog` + `useDialogLockScope` + `DialogLockProvider` (remounts on open, locked while saving). **Delete** uses `useCrudAction` with an inline confirm |
-| **Scenarios** | Server latency (off / 600 ms / 2 s) to see pending states and the dialog lock; a handler that throws (→ 500 result); a `redirect("/login")` interrupt; reset data |
+| **Scenarios** | Server latency (off / 600 ms / 2 s / 5 s) to see pending states and the dialog lock; a handler that throws (→ 500 result); a `redirect("/login")` interrupt; reset data |
 | **Event log** | The provider's `notify`, `onMutated`, `navigate` and the hooks' `onSuccess` / `onError`, in firing order |
 
 Wiring lives in `app/providers.tsx`: `NextCrudProvider` with toast + log

@@ -131,11 +131,19 @@ test.describe("failures", () => {
   });
 
   test("an expired session redirects to /login without an error toast", async ({ app, page }) => {
+    // Toasts vanish after a few seconds and may show up late, so record every one that ever appears.
+    const toasts = await app.recordToasts();
+
     await app.runScenario("Session expired");
 
     await expect(page).toHaveURL(/\/login$/);
     await expect(page.getByRole("heading", { name: "Session expired" })).toBeVisible();
-    await expect(app.toast(/expired|error|wrong/i)).toHaveCount(0);
+    // Let the whole flow settle (action answered, redirect done, provider onError run) before asserting absence.
+    await page.waitForLoadState("networkidle");
+    await app.settle();
+
+    expect(await toasts()).toEqual([]);
+    await expect(app.toast(/./)).toHaveCount(0);
 
     await page.getByRole("link", { name: "Back to the playground" }).click();
     await expect(page).not.toHaveURL(/\/login/);
@@ -145,7 +153,8 @@ test.describe("failures", () => {
 
 test.describe("dialog lock", () => {
   test("the edit dialog cannot be dismissed while saving", async ({ app, page }) => {
-    await app.setLatency("2 s");
+    // 5 s: the whole locked phase below must fit inside the save, however slow the machine is.
+    await app.setLatency("5 s");
 
     await app.row("Desk lamp").getByRole("button", { name: "Edit" }).click();
     await expect(app.dialog).toBeVisible();
@@ -158,14 +167,16 @@ test.describe("dialog lock", () => {
     await expect(app.dialog.getByRole("button", { name: "Close" })).toBeDisabled();
 
     await page.keyboard.press("Escape");
-    await expect(app.dialog).toBeVisible();
+    await app.expectDialogStillOpen();
 
     // Clicking the backdrop (outside the dialog box) is ignored too.
     await page.mouse.click(4, 4);
-    await expect(app.dialog).toBeVisible();
+    await app.expectDialogStillOpen();
+    await expect(app.dialog.getByText("the dialog is locked")).toBeVisible();
 
-    // When the save succeeds the lock is released and onSuccess closes the dialog.
+    // When the save succeeds the lock is released and onSuccess closes the dialog, exactly once.
     await expect(app.dialog).toBeHidden();
+    await expect(app.logEntry("dialog")).toHaveCount(1);
     await expect(app.toast("Updated “Desk lamp v2”")).toBeVisible();
     await expect(app.row("Desk lamp v2")).toBeVisible();
   });

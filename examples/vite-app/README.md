@@ -18,7 +18,7 @@ pnpm --filter example-vite-app preview  # http://localhost:4173
 | --- | --- |
 | **Create product** | `useCrudForm` with Zod: client validation, server re-validation (422), server field errors (duplicate name → 409), reset on success |
 | **Products** | **Edit** opens a native `<dialog>` wired with `useControllableDialog` + `useDialogLockScope` + `DialogLockProvider` (remounts on open, locked while saving). **Delete** uses `useCrudAction` with an inline confirm |
-| **Scenarios** | API latency (off / 600 ms / 2 s) to see pending states and the dialog lock; an endpoint that answers 500; an endpoint that answers 401 (→ `/login`); reset data |
+| **Scenarios** | API latency (off / 600 ms / 2 s / 5 s) to see pending states and the dialog lock; an endpoint that answers 500; an endpoint that answers 401 (→ `/login`); reset data |
 | **Event log** | The provider's `notify`, `onMutated`, `navigate` and the hooks' `onSuccess` / `onError`, in firing order |
 
 ## The adapter story

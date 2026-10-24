@@ -59,8 +59,8 @@ function route({ method, path, body }: HttpRequest): HttpResponse {
   if (method === "PUT" && path === "/settings/latency") {
     const ms = (body as { ms?: unknown } | undefined)?.ms;
 
-    if (ms !== 0 && ms !== 600 && ms !== 2000) {
-      return json(422, { message: "Latency must be 0, 600 or 2000" });
+    if (ms !== 0 && ms !== 600 && ms !== 2000 && ms !== 5000) {
+      return json(422, { message: "Latency must be 0, 600, 2000 or 5000" });
     }
 
     state.latencyMs = ms;

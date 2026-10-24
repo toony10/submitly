@@ -91,7 +91,7 @@ export async function expiredSessionAction() {
 
 export async function setLatency(ms: unknown) {
   return runAction({
-    schema: z.union([z.literal(0), z.literal(600), z.literal(2000)]),
+    schema: z.union([z.literal(0), z.literal(600), z.literal(2000), z.literal(5000)]),
     input: ms,
     handler: (value) => {
       store.setLatency(value);
